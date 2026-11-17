@@ -137,6 +137,15 @@ namespace WatchInput.Sources
                 scrollDeltaY = scroll.y;
             }
 
+            var touchscreen = UnityEngine.InputSystem.Touchscreen.current;
+            if (touchscreen != null)
+            {
+                var primary = touchscreen.primaryTouch;
+                if (primary.press.wasPressedThisFrame) mouseDownThisFrame = true;
+                if (primary.press.wasReleasedThisFrame) mouseUpThisFrame = true;
+                if (primary.press.isPressed) mouseHeld = true;
+            }
+
             var kb = UnityEngine.InputSystem.Keyboard.current;
             if (kb != null)
             {

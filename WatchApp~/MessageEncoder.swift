@@ -1,31 +1,43 @@
 import Foundation
 
-// Binary message serialization for the wire protocol.
-// Each message: [version u8][type u8][payload...], little-endian.
+// Binary message serialization for the wire protocol (v2).
+// Each input message: [version u8][type u8][sentMs f64 LE][payload...], little-endian.
+// sentMs = Date().timeIntervalSince1970 * 1000.0
 struct MessageEncoder {
+    private static func createHeader(type: MessageType) -> Data {
+        var data = Data(capacity: 16)
+        data.append(InputConstants.protocolVersion)
+        data.append(type.rawValue)
+        var sentMs = Date().timeIntervalSince1970 * 1000.0
+        Swift.withUnsafeBytes(of: &sentMs) { data.append(contentsOf: $0) }
+        return data
+    }
+
     static func encodeTap() -> Data {
-        Data([InputConstants.protocolVersion, MessageType.tap.rawValue])
+        createHeader(type: .tap)
     }
 
     static func encodePressBegin() -> Data {
-        Data([InputConstants.protocolVersion, MessageType.pressBegin.rawValue])
+        createHeader(type: .pressBegin)
     }
 
     static func encodePressHeld() -> Data {
-        Data([InputConstants.protocolVersion, MessageType.pressHeld.rawValue])
+        createHeader(type: .pressHeld)
     }
 
     static func encodePressEnd() -> Data {
-        Data([InputConstants.protocolVersion, MessageType.pressEnd.rawValue])
+        createHeader(type: .pressEnd)
     }
 
     static func encodeSwipe(_ direction: SwipeDirection) -> Data {
-        Data([InputConstants.protocolVersion, MessageType.swipe.rawValue, direction.rawValue])
+        var data = createHeader(type: .swipe)
+        data.append(direction.rawValue)
+        return data
     }
 
     static func encodeCrown(_ deltaTicks: Float) -> Data {
+        var data = createHeader(type: .crown)
         var ticks = deltaTicks
-        var data = Data([InputConstants.protocolVersion, MessageType.crown.rawValue])
         Swift.withUnsafeBytes(of: &ticks) { data.append(contentsOf: $0) }
         return data
     }

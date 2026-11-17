@@ -1,5 +1,6 @@
 #import <WatchConnectivity/WatchConnectivity.h>
 #import <QuartzCore/QuartzCore.h>
+#import <UIKit/UIKit.h>
 #include <os/lock.h>
 #include <stdint.h>
 #include <string.h>
@@ -8,11 +9,13 @@
 // ---------------------------------------------------------------------------
 // Protocol constants
 // ---------------------------------------------------------------------------
-static const uint8_t  kProtocolVersion      = 0x01;
-static const int      kRingBufferCapacity   = 64;
-static const uint64_t kPressWatchdogMs      = 600;
-static const uint64_t kHapticMinIntervalMs  = 80;
-static const uint8_t  kHapticTypeMax        = 8;
+static const uint8_t  kProtocolVersion        = 0x02;
+static const int      kRingBufferCapacity     = 64;
+static const uint64_t kPressWatchdogMs        = 600;
+static const uint64_t kHapticMinIntervalMs    = 80;
+static const uint8_t  kHapticTypeMax          = 8;
+static const double   kMaxInputAgeMs          = 500.0;
+static const double   kClockSkewThresholdMs   = -200.0;
 
 // Event types — must match Swift MessageType and C# WIEventType
 typedef enum : uint8_t {
@@ -46,6 +49,8 @@ typedef struct {
 // Singleton state
 // ---------------------------------------------------------------------------
 @interface WatchInputBridge : NSObject <WCSessionDelegate>
+- (void)appWillResignActive;
+- (void)appDidBecomeActive;
 @end
 
 static WatchInputBridge* sBridge = nil;
@@ -74,9 +79,16 @@ static std::atomic<uint32_t> sSessionStatus{0};
 static std::atomic<bool>     sDebugLog{false};
 static std::atomic<uint64_t> sLastHapticMs{0};
 static std::atomic<int>      sStaleDroppedCount{0};
+static std::atomic<bool>     sAppActive{false};
 
 // Crown log throttle (delegate queue only, no lock needed)
 static uint64_t sLastCrownLogMs = 0;
+
+// Latency statistics (delegate queue only)
+static uint32_t sAcceptedCount = 0;
+static double   sMinAgeMs = 1e9;
+static double   sMaxAgeMs = -1e9;
+static double   sTotalAgeMs = 0.0;
 
 // ---------------------------------------------------------------------------
 // Helpers (lock must be held by caller where noted)
@@ -118,9 +130,49 @@ static void checkPressWatchdogLocked(void) {
 }
 
 // ---------------------------------------------------------------------------
-// WCSessionDelegate
+// WCSessionDelegate & Lifecycle
 // ---------------------------------------------------------------------------
 @implementation WatchInputBridge
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(appWillResignActive)
+                                                     name:UIApplicationWillResignActiveNotification
+                                                   object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(appDidBecomeActive)
+                                                     name:UIApplicationDidBecomeActiveNotification
+                                                   object:nil];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)appWillResignActive {
+    sAppActive.store(false);
+    os_unfair_lock_lock(&sLock);
+    sHead = 0;
+    sCount = 0;
+    sCrownAccum = 0.0f;
+    sPressed = false;
+    sLastHeldMs = 0;
+    os_unfair_lock_unlock(&sLock);
+    if (sDebugLog.load()) {
+        NSLog(@"[WatchInput] App will resign active — buffer cleared, state reset");
+    }
+}
+
+- (void)appDidBecomeActive {
+    sAppActive.store(true);
+    if (sDebugLog.load()) {
+        NSLog(@"[WatchInput] App did become active");
+    }
+}
 
 - (void)session:(WCSession *)session
     activationDidCompleteWithState:(WCSessionActivationState)activationState
@@ -172,21 +224,58 @@ static void checkPressWatchdogLocked(void) {
     // Always reply to prevent sender timeout
     if (replyHandler) replyHandler([NSData data]);
 
-    if (data.length < 2) return;
+    // Minimum wire packet size: 10 bytes ([version u8][type u8][sentMs f64 LE])
+    if (data.length < 10) return;
 
     const uint8_t *bytes = (const uint8_t *)data.bytes;
     if (bytes[0] != kProtocolVersion) return;
 
-    WCSession *session = [WCSession defaultSession];
-    if (!session.isReachable) {
+    // Drop incoming packets if app is not active (e.g. background wakeups)
+    if (!sAppActive.load()) {
         sStaleDroppedCount++;
         if (sDebugLog.load()) {
-            NSLog(@"[WatchInput] Dropped stale message (session not reachable)");
+            NSLog(@"[WatchInput] Dropped packet (app not active)");
+        }
+        return;
+    }
+
+    // Timestamp verification
+    double sentMs;
+    memcpy(&sentMs, bytes + 2, sizeof(double));
+
+    double nowMs = [[NSDate date] timeIntervalSince1970] * 1000.0;
+    double ageMs = nowMs - sentMs;
+
+    if (ageMs > kMaxInputAgeMs) {
+        sStaleDroppedCount++;
+        if (sDebugLog.load()) {
+            NSLog(@"[WatchInput] Dropped stale packet: age=%.1f ms > %.0f ms", ageMs, kMaxInputAgeMs);
         }
         return;
     }
 
     bool debug = sDebugLog.load();
+
+    if (ageMs < kClockSkewThresholdMs) {
+        if (debug) {
+            NSLog(@"[WatchInput] Warning: clock skew suspected: age=%.1f ms < %.0f ms", ageMs, kClockSkewThresholdMs);
+        }
+    }
+
+    // Latency statistics (throttled: every 50 accepted packets when debug is active)
+    sAcceptedCount++;
+    if (ageMs < sMinAgeMs) sMinAgeMs = ageMs;
+    if (ageMs > sMaxAgeMs) sMaxAgeMs = ageMs;
+    sTotalAgeMs += ageMs;
+
+    if (debug && (sAcceptedCount % 50 == 0)) {
+        NSLog(@"[WatchInput] Latency stats (last 50 pkts): min=%.1f ms, avg=%.1f ms, max=%.1f ms (accepted=%u)",
+              sMinAgeMs, sTotalAgeMs / 50.0, sMaxAgeMs, sAcceptedCount);
+        sMinAgeMs = 1e9;
+        sMaxAgeMs = -1e9;
+        sTotalAgeMs = 0.0;
+    }
+
     uint8_t type = bytes[1];
 
     switch (type) {
@@ -223,8 +312,8 @@ static void checkPressWatchdogLocked(void) {
             break;
         }
         case WIEventType_Swipe: {
-            if (data.length < 3) break;
-            uint8_t dir = bytes[2];
+            if (data.length < 11) break;
+            uint8_t dir = bytes[10];
             os_unfair_lock_lock(&sLock);
             pushEventLocked(WIEventType_Swipe, dir, 0.0f);
             os_unfair_lock_unlock(&sLock);
@@ -232,9 +321,9 @@ static void checkPressWatchdogLocked(void) {
             break;
         }
         case WIEventType_Crown: {
-            if (data.length < 6) break;
+            if (data.length < 14) break;
             float delta;
-            memcpy(&delta, bytes + 2, sizeof(float));
+            memcpy(&delta, bytes + 10, sizeof(float));
             os_unfair_lock_lock(&sLock);
             sCrownAccum += delta;
             os_unfair_lock_unlock(&sLock);
@@ -291,10 +380,17 @@ void WI_Init(void) {
     sSessionStatus.store(WIStatus_Supported);
     sLastHapticMs.store(0);
     sStaleDroppedCount.store(0);
+    sAcceptedCount = 0;
+    sMinAgeMs = 1e9;
+    sMaxAgeMs = -1e9;
+    sTotalAgeMs = 0.0;
 
     if (!sBridge) {
         sBridge = [[WatchInputBridge alloc] init];
     }
+
+    UIApplicationState appState = [UIApplication sharedApplication].applicationState;
+    sAppActive.store(appState == UIApplicationStateActive);
 
     WCSession *session = [WCSession defaultSession];
     session.delegate = sBridge;

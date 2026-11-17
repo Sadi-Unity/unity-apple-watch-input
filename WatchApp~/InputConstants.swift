@@ -14,7 +14,7 @@ enum InputConstants {
     static let crownSendMaxHz: Double = 30.0
     static let crownHapticEnabled: Bool = true
 
-    static let protocolVersion: UInt8 = 0x01
+    static let protocolVersion: UInt8 = 0x02
 }
 
 // Wire protocol message types
