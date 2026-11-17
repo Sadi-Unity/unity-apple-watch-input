@@ -1,5 +1,7 @@
+#if UNITY_IOS
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor.iOS.Xcode;
 using UnityEngine;
@@ -23,9 +25,9 @@ namespace WatchInput.Tests.Editor
             var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(WatchTargetConfiguratorTests).Assembly);
             if (packageInfo != null)
             {
-                return Path.Combine(packageInfo.resolvedPath, "Tests/Editor/Fixtures/minimal.pbxproj");
+                return Path.Combine(packageInfo.resolvedPath, "Tests/Editor/Fixtures/unity-generated.pbxproj");
             }
-            return Path.GetFullPath("Packages/com.sadiakdemir.watch-input/Tests/Editor/Fixtures/minimal.pbxproj");
+            return Path.GetFullPath("Packages/com.sadiakdemir.watch-input/Tests/Editor/Fixtures/unity-generated.pbxproj");
         }
 
         [SetUp]
@@ -45,9 +47,9 @@ namespace WatchInput.Tests.Editor
             _tempIconPath = Path.Combine(_tempSourcesDir, "TestIcon-1024.png");
             File.WriteAllBytes(_tempIconPath, new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
 
-            // Load minimal Xcode project fixture
+            // Load generated Xcode project fixture
             string fixturePath = GetFixturePath();
-            Assert.IsTrue(File.Exists(fixturePath), $"minimal.pbxproj fixture must exist at: {fixturePath}");
+            Assert.IsTrue(File.Exists(fixturePath), $"unity-generated.pbxproj fixture must exist at: {fixturePath}");
             _fixtureContent = File.ReadAllText(fixturePath);
 
             _project = new PBXProject();
@@ -112,6 +114,22 @@ namespace WatchInput.Tests.Editor
         }
 
         [Test]
+        public void Configure_EmbedWatchContentPhase_PrecedesUnityPhonyPostprocessTarget()
+        {
+            var snapshot = CreateDefaultSnapshot();
+
+            WatchTargetConfigurator.Configure(_project, _tempBuildDir, snapshot);
+
+            string[] phases = _project.GetAllBuildPhasesForTarget(_mainTargetGuid);
+            int embedIndex = Array.FindIndex(phases, p => _project.GetBuildPhaseName(p) == "Embed Watch Content");
+            int phonyIndex = Array.FindIndex(phases, p => _project.GetBuildPhaseName(p) == "Unity Phony Postprocess Target");
+
+            Assert.IsTrue(embedIndex >= 0, "'Embed Watch Content' phase must exist in target buildPhases");
+            Assert.IsTrue(phonyIndex >= 0, "'Unity Phony Postprocess Target' phase must exist in target buildPhases");
+            Assert.IsTrue(embedIndex < phonyIndex, $"'Embed Watch Content' (index {embedIndex}) must precede 'Unity Phony Postprocess Target' (index {phonyIndex}) in buildPhases order");
+        }
+
+        [Test]
         public void Configure_IsIdempotent_WhenCalledMultipleTimes()
         {
             var snapshot = CreateDefaultSnapshot();
@@ -120,16 +138,46 @@ namespace WatchInput.Tests.Editor
             WatchTargetConfigurator.Configure(_project, _tempBuildDir, snapshot);
             string firstWatchGuid = _project.TargetGuidByName(WatchInputSettings.WatchTargetName);
 
-            // Write project to disk so File.Exists check in EnsureEmbedWatchContentPhase sees previous run
-            string pbxPath = PBXProject.GetPBXProjectPath(_tempBuildDir);
-            Directory.CreateDirectory(Path.GetDirectoryName(pbxPath));
-            _project.WriteToFile(pbxPath);
-
-            // Second run
+            // Second run directly on the same in-memory PBXProject
             WatchTargetConfigurator.Configure(_project, _tempBuildDir, snapshot);
             string secondWatchGuid = _project.TargetGuidByName(WatchInputSettings.WatchTargetName);
 
             Assert.AreEqual(firstWatchGuid, secondWatchGuid, "Second Configure call must update existing target rather than creating a duplicate");
+
+            // Explicitly count all 5 configured structures in the project output
+            string pbxText = _project.WriteToString();
+
+            // 1. Watch target count
+            int nativeTargetsStart = pbxText.IndexOf("/* Begin PBXNativeTarget section */", StringComparison.Ordinal);
+            int nativeTargetsEnd = pbxText.IndexOf("/* End PBXNativeTarget section */", StringComparison.Ordinal);
+            string nativeTargetsSection = pbxText.Substring(nativeTargetsStart, nativeTargetsEnd - nativeTargetsStart);
+            int watchTargetCount = Regex.Matches(nativeTargetsSection, @"name = ""?WatchInput Watch App""?;").Count;
+            Assert.AreEqual(1, watchTargetCount, "Watch target count must be 1");
+
+            // 2. 'Embed Watch Content' phase count
+            int copyFilesStart = pbxText.IndexOf("/* Begin PBXCopyFilesBuildPhase section */", StringComparison.Ordinal);
+            int copyFilesEnd = pbxText.IndexOf("/* End PBXCopyFilesBuildPhase section */", StringComparison.Ordinal);
+            string copyFilesSection = pbxText.Substring(copyFilesStart, copyFilesEnd - copyFilesStart);
+            int embedPhaseCount = Regex.Matches(copyFilesSection, @"/\* Embed Watch Content \*/ = \{").Count;
+            Assert.AreEqual(1, embedPhaseCount, "'Embed Watch Content' build phase count must be 1");
+
+            // 3. Product file in embed phase count
+            int prodFileInPhaseCount = Regex.Matches(copyFilesSection, @"/\* WatchInput Watch App\.app in Embed Watch Content \*/").Count;
+            Assert.AreEqual(1, prodFileInPhaseCount, "Product file in 'Embed Watch Content' phase count must be 1");
+
+            // 4. Target dependency count
+            int targetDepStart = pbxText.IndexOf("/* Begin PBXTargetDependency section */", StringComparison.Ordinal);
+            int targetDepEnd = pbxText.IndexOf("/* End PBXTargetDependency section */", StringComparison.Ordinal);
+            string targetDepSection = targetDepStart >= 0 ? pbxText.Substring(targetDepStart, targetDepEnd - targetDepStart) : "";
+            int targetDepCount = Regex.Matches(targetDepSection, @"/\* WatchInput Watch App \*/;").Count;
+            Assert.AreEqual(1, targetDepCount, "Target dependency count must be 1");
+
+            // 5. WatchConnectivity link count
+            int frameworksStart = pbxText.IndexOf("/* Begin PBXFrameworksBuildPhase section */", StringComparison.Ordinal);
+            int frameworksEnd = pbxText.IndexOf("/* End PBXFrameworksBuildPhase section */", StringComparison.Ordinal);
+            string frameworksSection = pbxText.Substring(frameworksStart, frameworksEnd - frameworksStart);
+            int wcLinkCount = Regex.Matches(frameworksSection, @"WatchConnectivity\.framework in Frameworks").Count;
+            Assert.AreEqual(1, wcLinkCount, "WatchConnectivity.framework link count in Frameworks build phase must be 1");
         }
 
         [Test]
@@ -258,3 +306,4 @@ namespace WatchInput.Tests.Editor
         }
     }
 }
+#endif

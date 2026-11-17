@@ -4,10 +4,12 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.TestTools.Constraints;
 using WatchInput;
 using WatchInput.Core;
 using WatchInput.Native;
 using WatchInput.Sources;
+using Is = UnityEngine.TestTools.Constraints.Is;
 
 namespace WatchInput.Tests.Editor
 {
@@ -224,6 +226,79 @@ namespace WatchInput.Tests.Editor
             Assert.AreEqual(0, Watch.TapCount, "TapCount must reset on next frame");
             Assert.IsFalse(Watch.PressStarted, "PressStarted must reset on next frame");
             Assert.AreEqual(0f, Watch.CrownDelta, 0.001f, "CrownDelta must reset on next frame");
+        }
+
+        [Test]
+        public void Pump_WhenPressActive_AndSourceGivesIsPressedFalseWithPressEndEvent_TriggersPressReleasedAndSetsPressEnded()
+        {
+            // Frame 1: Establish pressed state
+            _fakeSource.EventsToDrain.Add(new WI_Event { type = (byte)WIEventType.PressBegin });
+            _fakeSource.PressedState = true;
+            WatchInputPump.TickForTesting();
+            Assert.IsTrue(Watch.IsPressed, "Watch should be pressed after frame 1");
+
+            // Frame 2: Source transitions to unpressed with synthetic/regular PressEnd event (e.g. arg = 2 from app resignation)
+            _fakeSource.EventsToDrain.Add(new WI_Event { type = (byte)WIEventType.PressEnd, arg = 2 });
+            _fakeSource.PressedState = false;
+
+            bool pressReleasedFired = false;
+            Watch.PressReleased += () => pressReleasedFired = true;
+
+            WatchInputPump.TickForTesting();
+
+            Assert.IsFalse(Watch.IsPressed, "Watch.IsPressed must be false");
+            Assert.IsTrue(Watch.PressEnded, "Watch.PressEnded must be true");
+            Assert.IsTrue(pressReleasedFired, "Watch.PressReleased event must be fired");
+        }
+
+        [Test]
+        public void Pump_WhenPressActive_AndSourceGivesIsPressedFalseWithoutPressEndEvent_SynthesizesPressEndedAndPressReleased()
+        {
+            // Frame 1: Establish pressed state
+            _fakeSource.EventsToDrain.Add(new WI_Event { type = (byte)WIEventType.PressBegin });
+            _fakeSource.PressedState = true;
+            WatchInputPump.TickForTesting();
+            Assert.IsTrue(Watch.IsPressed, "Watch should be pressed after frame 1");
+
+            // Frame 2: Source transitions to unpressed WITHOUT PressEnd event (event loss defense via falling edge)
+            _fakeSource.PressedState = false;
+
+            bool pressReleasedFired = false;
+            Watch.PressReleased += () => pressReleasedFired = true;
+
+            WatchInputPump.TickForTesting();
+
+            Assert.IsFalse(Watch.IsPressed, "Watch.IsPressed must be false");
+            Assert.IsTrue(Watch.PressEnded, "Watch.PressEnded must be synthesized true on falling edge");
+            Assert.IsTrue(pressReleasedFired, "Watch.PressReleased event must be triggered on falling edge");
+        }
+
+        [Test]
+        public void Pump_TickForTesting_AllocatesZeroGCMemory_WithoutEvents()
+        {
+            // Warm-up call
+            WatchInputPump.TickForTesting();
+
+            // Assert zero GC memory allocated on per-frame hot path without events
+            Assert.That(() => WatchInputPump.TickForTesting(), Is.Not.AllocatingGCMemory());
+        }
+
+        [Test]
+        public void Pump_TickForTesting_AllocatesZeroGCMemory_WithEvents()
+        {
+            // Prepare events for warm-up
+            _fakeSource.EventsToDrain.Add(new WI_Event { type = (byte)WIEventType.Tap });
+            _fakeSource.NextCrownDelta = 1.0f;
+
+            // Warm-up call
+            WatchInputPump.TickForTesting();
+
+            // Prepare identical events for measured run
+            _fakeSource.EventsToDrain.Add(new WI_Event { type = (byte)WIEventType.Tap });
+            _fakeSource.NextCrownDelta = 1.0f;
+
+            // Assert zero GC memory allocated on per-frame hot path with events
+            Assert.That(() => WatchInputPump.TickForTesting(), Is.Not.AllocatingGCMemory());
         }
     }
 }

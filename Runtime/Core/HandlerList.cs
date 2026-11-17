@@ -4,7 +4,7 @@ using UnityEngine;
 namespace WatchInput.Core
 {
     /// <summary>
-    /// Thread-safe multicast handler list with zero GC allocation on invoke.
+    /// Multicast handler list for main-thread only; safe against subscribe/unsubscribe during invoke, with zero GC allocation on invoke.
     /// Allocations occur strictly upon subscriber addition or removal.
     /// Each subscriber is isolated in its own try/catch block so exceptions do not abort remaining subscribers.
     /// </summary>
@@ -71,7 +71,7 @@ namespace WatchInput.Core
     }
 
     /// <summary>
-    /// Generic thread-safe multicast handler list with zero GC allocation on invoke.
+    /// Generic multicast handler list for main-thread only; safe against subscribe/unsubscribe during invoke, with zero GC allocation on invoke.
     /// </summary>
     internal sealed class HandlerList<T>
     {

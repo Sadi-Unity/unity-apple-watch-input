@@ -13,7 +13,7 @@ namespace WatchInput.Editor
     /// </summary>
     public static class WatchAppPostProcess
     {
-        // Order 999 ensures this runs after standard Unity processing and other plugins have finished preparing the base Xcode project.
+        // Order 999 requests late execution after standard Unity processing and other plugins have prepared the base Xcode project (request, not guaranteed).
         [PostProcessBuild(999)]
         public static void OnPostProcessBuild(BuildTarget buildTarget, string pathToBuiltProject)
         {
@@ -24,24 +24,28 @@ namespace WatchInput.Editor
 
             Debug.Log("[WatchInput] Starting watchOS companion target configuration in Xcode project...");
 
+            string packageRoot = GetPackageRootPath();
+            if (string.IsNullOrEmpty(packageRoot))
+            {
+                Debug.LogError("[WatchInput] Watch target configuration aborted: package root could not be determined.");
+                return;
+            }
+
             string pbxPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
             var pbxProject = new PBXProject();
             pbxProject.ReadFromFile(pbxPath);
 
-            string packageRoot = GetPackageRootPath();
             var snapshot = WatchBuildSnapshot.Create(WatchInputSettings.instance, packageRoot);
 
             WatchTargetConfigurator.Configure(pbxProject, pathToBuiltProject, snapshot);
 
             pbxProject.WriteToFile(pbxPath);
 
-            WatchTargetConfigurator.FixEmbedPhaseOrder(pbxPath);
-
             Debug.Log("[WatchInput] Successfully configured watchOS companion target.");
         }
 
         /// <summary>
-        /// Locates the package root directory dynamically without hardcoded absolute paths using PackageInfo reflection.
+        /// Locates the package root directory dynamically without hardcoded absolute paths using PackageInfo API.
         /// </summary>
         private static string GetPackageRootPath()
         {

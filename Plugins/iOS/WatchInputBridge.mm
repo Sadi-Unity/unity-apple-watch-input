@@ -39,13 +39,10 @@ typedef enum : uint32_t {
     WIStatus_Reachable  = 1u << 4,
 } WIStatusFlag;
 
-// 12 bytes, 4-byte aligned — must match C# [StructLayout(Sequential, Size=12)]
+// 2 bytes, 1-byte packed — must match C# [StructLayout(Sequential, Pack = 1)]
 typedef struct {
     uint8_t  type;      // WIEventType
-    uint8_t  arg;       // direction for SWIPE, 1=watchdog for synthetic PRESS_END, 0 otherwise
-    uint8_t  _pad[2];
-    float    value;     // unused for discrete events (0.0)
-    uint32_t timestamp; // milliseconds since WI_Init
+    uint8_t  arg;       // direction for SWIPE, 1=watchdog, 2=app resigned for synthetic PRESS_END
 } WI_Event;
 
 // ---------------------------------------------------------------------------
@@ -84,10 +81,10 @@ static std::atomic<uint64_t> sLastHapticMs{0};
 static std::atomic<int>      sStaleDroppedCount{0};
 static std::atomic<bool>     sAppActive{false};
 
-// Crown log throttle (delegate queue only, no lock needed)
+// Crown log throttle (serialized across WCSession delegate callbacks)
 static uint64_t sLastCrownLogMs = 0;
 
-// Latency statistics (delegate queue only)
+// Latency statistics (serialized across WCSession delegate callbacks; reset during WI_Init)
 static uint32_t sAcceptedCount = 0;
 static double   sMinAgeMs = 1e9;
 static double   sMaxAgeMs = -1e9;
@@ -101,8 +98,13 @@ static uint32_t currentMs(void) {
     return (uint32_t)((CACurrentMediaTime() - sInitTime) * 1000.0);
 }
 
-// Push event into ring buffer — caller MUST hold sLock
-static void pushEventLocked(uint8_t type, uint8_t arg, float value) {
+// Push event into ring buffer — caller MUST hold sLock.
+// Re-checks sAppActive under lock to discard packets arriving while resigning active.
+// arg == 2 is permitted as synthetic PRESS_END generated during appWillResignActive.
+static void pushEventLocked(uint8_t type, uint8_t arg) {
+    if (!sAppActive.load() && arg != 2) {
+        return;
+    }
     if (sCount == kRingBufferCapacity) {
         // Overflow: drop oldest, advance head
         sHead = (sHead + 1) % kRingBufferCapacity;
@@ -114,10 +116,6 @@ static void pushEventLocked(uint8_t type, uint8_t arg, float value) {
     WI_Event ev;
     ev.type = type;
     ev.arg = arg;
-    ev._pad[0] = 0;
-    ev._pad[1] = 0;
-    ev.value = value;
-    ev.timestamp = currentMs();
     sRingBuffer[idx] = ev;
 }
 
@@ -128,7 +126,7 @@ static void checkPressWatchdogLocked(void) {
     uint64_t nowMs = (uint64_t)((CACurrentMediaTime() - sInitTime) * 1000.0);
     if ((nowMs - sLastHeldMs) > kPressWatchdogMs) {
         sPressed = false;
-        pushEventLocked(WIEventType_PressEnd, 1, 0.0f); // arg=1: watchdog source
+        pushEventLocked(WIEventType_PressEnd, 1); // arg=1: watchdog source
     }
 }
 
@@ -171,11 +169,15 @@ static void checkPressWatchdogLocked(void) {
     sAppActive.store(false);
     [self sendApplicationContextPhoneActive:NO];
     os_unfair_lock_lock(&sLock);
+    bool wasPressed = sPressed;
     sHead = 0;
     sCount = 0;
     sCrownAccum = 0.0f;
     sPressed = false;
     sLastHeldMs = 0;
+    if (wasPressed) {
+        pushEventLocked(WIEventType_PressEnd, 2); // arg = 2: "app resigned"
+    }
     os_unfair_lock_unlock(&sLock);
     if (sDebugLog.load()) {
         NSLog(@"[WatchInput] App will resign active — buffer cleared, state reset");
@@ -300,7 +302,7 @@ static void checkPressWatchdogLocked(void) {
     switch (type) {
         case WIEventType_Tap: {
             os_unfair_lock_lock(&sLock);
-            pushEventLocked(WIEventType_Tap, 0, 0.0f);
+            pushEventLocked(WIEventType_Tap, 0);
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: TAP");
             break;
@@ -309,7 +311,7 @@ static void checkPressWatchdogLocked(void) {
             os_unfair_lock_lock(&sLock);
             sPressed = true;
             sLastHeldMs = (uint64_t)((CACurrentMediaTime() - sInitTime) * 1000.0);
-            pushEventLocked(WIEventType_PressBegin, 0, 0.0f);
+            pushEventLocked(WIEventType_PressBegin, 0);
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: PRESS_BEGIN");
             break;
@@ -317,7 +319,6 @@ static void checkPressWatchdogLocked(void) {
         case WIEventType_PressHeld: {
             os_unfair_lock_lock(&sLock);
             sLastHeldMs = (uint64_t)((CACurrentMediaTime() - sInitTime) * 1000.0);
-            pushEventLocked(WIEventType_PressHeld, 0, 0.0f);
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: PRESS_HELD");
             break;
@@ -325,7 +326,7 @@ static void checkPressWatchdogLocked(void) {
         case WIEventType_PressEnd: {
             os_unfair_lock_lock(&sLock);
             sPressed = false;
-            pushEventLocked(WIEventType_PressEnd, 0, 0.0f);
+            pushEventLocked(WIEventType_PressEnd, 0);
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: PRESS_END");
             break;
@@ -334,7 +335,7 @@ static void checkPressWatchdogLocked(void) {
             if (data.length < 11) break;
             uint8_t dir = bytes[10];
             os_unfair_lock_lock(&sLock);
-            pushEventLocked(WIEventType_Swipe, dir, 0.0f);
+            pushEventLocked(WIEventType_Swipe, dir);
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: SWIPE dir=%d", dir);
             break;
@@ -484,17 +485,6 @@ int WI_SendHaptic(int type) {
         NSLog(@"[WatchInput] Sent haptic type=%d", type);
     }
     return 1;
-}
-
-int WI_GetDroppedCount(void) {
-    os_unfair_lock_lock(&sLock);
-    int count = sDroppedCount;
-    os_unfair_lock_unlock(&sLock);
-    return count;
-}
-
-int WI_GetStaleDroppedCount(void) {
-    return sStaleDroppedCount.load();
 }
 
 void WI_SetDebugLog(int on) {

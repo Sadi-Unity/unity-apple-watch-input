@@ -201,7 +201,17 @@ namespace WatchInput.Core
             }
 
             // 4. Source of truth for IsPressed: polled every frame (native side includes the watchdog).
-            Watch.IsPressed = ActiveSource.IsPressed();
+            //    Detect falling edge (previously true -> currently false) as secondary defense against lost release events.
+            bool previouslyPressed = Watch.IsPressed;
+            bool currentlyPressed = ActiveSource.IsPressed();
+            Watch.IsPressed = currentlyPressed;
+
+            bool synthesizedPressEnd = false;
+            if (previouslyPressed && !currentlyPressed && !Watch.PressEnded)
+            {
+                Watch.PressEnded = true;
+                synthesizedPressEnd = true;
+            }
 
             // 5. Crown accumulation and integer steps. Remainder resets only on direction change.
             float delta = ActiveSource.ConsumeCrownDelta();
@@ -230,6 +240,11 @@ namespace WatchInput.Core
                     case WIEventType.PressEnd:   Watch.InvokePressReleased(); break;
                     case WIEventType.Swipe:      Watch.InvokeSwiped((WatchSwipe)ev.arg); break;
                 }
+            }
+
+            if (synthesizedPressEnd)
+            {
+                Watch.InvokePressReleased();
             }
 
             if (delta != 0f)

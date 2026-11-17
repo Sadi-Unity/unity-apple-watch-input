@@ -5,7 +5,7 @@ and the Digital Crown on the watch, haptic feedback back to the wrist.
 Install the package and your iOS build **automatically gains a watchOS app**. No Xcode editing,
 no scene setup.
 
-<p align="center"><img src="docs/demo.gif" width="340" alt="Tapping, swiping, holding and turning the Digital Crown on an Apple Watch; the iPhone shows each input"></p>
+<p align="center"><img src="Documentation~/demo.gif" width="340" alt="Tapping, swiping, holding and turning the Digital Crown on an Apple Watch; the iPhone shows each input"></p>
 
 ```csharp
 using WatchInput;
@@ -31,8 +31,8 @@ live in it. This package adds one from code, every build, in a single `PostProce
 - adds a single-target SwiftUI **watchOS app target** (`SDKROOT=watchos`, device family 4,
   `WKApplication`, companion bundle ID, `SKIP_INSTALL`, versions mirrored from Player Settings)
 - copies the Swift sources from the package and adds them with **relative** paths
-- adds the **Embed Watch Content** phase and moves it before Unity's postprocess phase
-  (the Xcode API can't reorder phases, so this is a guarded text edit that warns instead of failing silently)
+- adds the **Embed Watch Content** phase before Unity's postprocess phase
+  (`AddCopyFilesBuildPhaseBeforeTargetPostprocess`, which also returns the existing phase on re-runs)
 - links `WatchConnectivity.framework` to `UnityFramework`
 - generates the watch **app icon** asset catalog and a Swift config file from your settings
 - **inherits signing** from Player Settings (automatic or manual) — it never changes the signing of your iOS app
@@ -61,7 +61,7 @@ Then:
 
 **Try the sample first:** in Package Manager select *Watch Input for Unity*, open the **Samples** tab
 (next to *Description*), click **Import** next to *Basic Demo*, then open
-`Assets/Samples/Watch Input for Unity/0.1.0/Basic Demo/BasicDemo.unity` — a scene that shows every input on
+`Assets/Samples/Watch Input for Unity/<version>/Basic Demo/BasicDemo.unity` — a scene that shows every input on
 screen and plays haptics back. In the Editor, click / hold / use the arrow keys / scroll to simulate the watch.
 The haptic played for each input is chosen in the Inspector on the *Watch Input Demo* object — or call
 `Watch.PlayHaptic(...)` from your own code; the package carries input, the feel is up to your game.
@@ -91,13 +91,14 @@ package and the legacy Input Manager; the active source is logged once at startu
 
 - **Recognition happens on the watch.** A single `DragGesture` state machine turns touches into
   tap / press / swipe; the phone receives meaningful events, not raw touches.
-- **Small binary protocol** over `WCSession.sendMessageData` (2–14 bytes per message, version byte first)
+- **Small binary protocol** over `WCSession.sendMessageData` (3–14 bytes per message, version byte first)
   instead of dictionary messages.
 - **Every input carries its send time.** iOS can wake the app in the background for a watch message and
   delivers messages sent while the app was closed when it next launches. Packets older than 1 s, and packets
   that arrive while the app is not active, are dropped — the game never receives a burst of stale taps.
 - **Press is a state channel, not just two events.** While held, the watch repeats a keep-alive every 250 ms;
-  if the phone hears nothing for 600 ms it releases the press itself. A lost "release" can't leave a button stuck.
+  if the phone hears nothing for 600 ms it releases the press itself, and the app going to the background
+  releases it too. `PressReleased` fires in every case, so a lost "release" can't leave a button stuck.
 - **Pull model across the native boundary.** The Objective-C++ bridge buffers events in a fixed ring buffer;
   C# drains it once per frame into a preallocated blittable struct array through a C ABI.
   No `UnitySendMessage`, no callbacks from foreign threads, **no per-frame GC allocations**.
@@ -109,7 +110,7 @@ package and the legacy Input Manager; the active source is logged once at startu
 - **Phone state is published with `updateApplicationContext`** (latest-value semantics, delivered even when the
   watch app isn't running), so the watch can tell "open the game on your iPhone" apart from "raise your wrist".
 
-More detail: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+More detail: [Documentation~/DEVELOPMENT.md](Documentation~/DEVELOPMENT.md).
 
 ## Limitations (measured, not assumed)
 
@@ -126,7 +127,13 @@ Other models and settings will differ.
   clocks are synchronised by the system, so these numbers include any small clock offset.
 - **Press keep-alive** intervals were observed between ~205 and ~450 ms (target 250 ms); the 600 ms release
   timeout leaves ~150 ms of margin.
-- **Manual signing** is implemented but has only been tested with automatic signing on a device.
+- **Signing.** Only automatic signing has been tested on a device; manual signing is implemented and unit-tested.
+  - If CI passes signing settings on the `xcodebuild` command line (e.g. `PROVISIONING_PROFILE_SPECIFIER=…`),
+    they apply to **every** target, including the watch app; give the watch target its own profile and add its
+    bundle ID (`<app id>.watchkitapp`) to your export options.
+  - With an empty Team ID the watch target gets no `DEVELOPMENT_TEAM` (a pre-build warning tells you).
+  - The companion bundle ID is written at build time; if your pipeline changes the iOS bundle ID after the
+    Unity build, change the watch target's too.
 - Swipes that start at the very edge of the watch screen may be taken by the system.
 
 ## Troubleshooting
@@ -140,19 +147,24 @@ Other models and settings will differ.
 
 ## Tests
 
-39 EditMode tests cover the build step against a hand-written fixture Xcode project (target creation,
-idempotency, build settings, signing branches, icon catalog, embed-phase ordering), the settings validators
-and the runtime input pump (crown remainder, event ordering, subscriber isolation, swipe queue).
+41 EditMode tests (all passing on Unity 6000.2.8f1) cover the build step against an Xcode project generated by
+Unity from an empty project (target creation, idempotency counted after a second run, build settings, signing
+branches, icon catalog, generated Swift config), the settings validators and the runtime input pump (crown
+remainder, event ordering, subscriber isolation, press release when the app is backgrounded, and **no GC
+allocation per frame**, asserted with `Is.Not.AllocatingGCMemory()`).
 To run them in your project add `"testables": ["com.sadiakdemir.watch-input"]` to `Packages/manifest.json`.
 
 ## How this was built
 
-Built in less than a day by one developer working with AI coding agents, on top of prior experience shipping
-an Apple Watch–controlled iOS game. The agents wrote the code; architecture, protocol design, specifications,
-code review, on-device diagnosis and measurement were done by hand, in a plan → review → implement → review →
-device-test loop. Review and device testing caught a dozen defects, including an invented API, a silent IL2CPP
-stripping issue and a wrong first hypothesis about stale input that the device disproved.
-The process and the defect log: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+I designed the architecture, the watch ↔ phone protocol and the public API, wrote the specification for each
+step, and AI coding agents implemented against those specs. I reviewed every diff from disk (with an AI
+review assistant), built and tested on device, and took the measurements above. Review, tests and the device
+caught defects such as an invented API, the IL2CPP assembly being stripped silently, and my own first fix for
+stale input, which the device disproved. An independent review before 0.1.1 found that the embed-phase step
+re-implemented an API Unity already ships; it now uses that API.
+
+Not yet verified: manual signing on a device, and Unity versions other than 6000.2.8f1.
+The process and the full defect log: [Documentation~/DEVELOPMENT.md](Documentation~/DEVELOPMENT.md).
 
 ## License
 

@@ -3,8 +3,8 @@ using UnityEngine;
 namespace WatchInput.Samples
 {
     /// <summary>
-    /// Lightweight zero-allocation HUD demonstrating all public Watch input events,
-    /// per-frame polling properties, and haptic feedback triggers.
+    /// Lightweight HUD demonstrating all public Watch input events, per-frame polling properties,
+    /// and haptic feedback triggers with no per-frame string allocations (IMGUI itself may allocate).
     /// Uses IMGUI for rendering independence across Universal, HDRP, and Built-in pipelines.
     /// </summary>
     public class WatchInputDemo : MonoBehaviour

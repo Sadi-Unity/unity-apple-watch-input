@@ -1,11 +1,10 @@
-using System;
 using System.Runtime.InteropServices;
 
 namespace WatchInput.Native
 {
     // Discrete event types delivered via the ring buffer.
     // Crown is handled separately via WI_ConsumeCrownDelta.
-    public enum WIEventType : byte
+    internal enum WIEventType : byte
     {
         Tap        = 0x01,
         PressBegin = 0x02,
@@ -14,58 +13,20 @@ namespace WatchInput.Native
         Swipe      = 0x05,
     }
 
-    public enum WISwipeDirection : byte
-    {
-        Up    = 0,
-        Down  = 1,
-        Left  = 2,
-        Right = 3,
-    }
-
-    // Explicit enum matching WKHapticType values via switch on the watch side.
-    public enum WIHapticType : int
-    {
-        Notification  = 0,
-        DirectionUp   = 1,
-        DirectionDown = 2,
-        Success       = 3,
-        Failure       = 4,
-        Retry         = 5,
-        Start         = 6,
-        Stop          = 7,
-        Click         = 8,
-    }
-
-    // Session status bitmask — mirrors native WIStatusFlag.
-    [Flags]
-    public enum WIStatus : uint
-    {
-        None      = 0,
-        Supported = 1u << 0,
-        Activated = 1u << 1,
-        Paired    = 1u << 2,
-        Installed = 1u << 3,
-        Reachable = 1u << 4,
-    }
-
-    // 12 bytes, 4-byte aligned. Blittable — single allocation, automatic pinning.
+    // 2 bytes, 1-byte packed. Blittable — single allocation, automatic pinning.
     // Must match native WI_Event layout exactly.
-    [StructLayout(LayoutKind.Sequential, Size = 12)]
-    public struct WI_Event
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    internal struct WI_Event
     {
-        public byte  type;      // WIEventType
-        public byte  arg;       // direction for SWIPE, 1=watchdog for synthetic PRESS_END
-        private byte _pad0;
-        private byte _pad1;
-        public float value;     // unused for discrete events (0.0)
-        public uint  timestamp; // milliseconds since WI_Init
+        public byte type; // WIEventType
+        public byte arg;  // direction for SWIPE, 1=watchdog, 2=app resigned for synthetic PRESS_END
     }
 
     /// <summary>
     /// P/Invoke declarations for the native WatchInputBridge.
     /// On non-iOS or in Editor: safe stub implementations returning defaults.
     /// </summary>
-    public static class WatchInputNative
+    internal static class WatchInputNative
     {
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")] public static extern void  WI_Init();
@@ -74,8 +35,6 @@ namespace WatchInput.Native
         [DllImport("__Internal")] public static extern float WI_ConsumeCrownDelta();
         [DllImport("__Internal")] public static extern int   WI_IsPressed();
         [DllImport("__Internal")] public static extern int   WI_SendHaptic(int type);
-        [DllImport("__Internal")] public static extern int   WI_GetDroppedCount();
-        [DllImport("__Internal")] public static extern int   WI_GetStaleDroppedCount();
         [DllImport("__Internal")] public static extern void  WI_SetDebugLog(int on);
 #else
         public static void  WI_Init() { }
@@ -84,8 +43,6 @@ namespace WatchInput.Native
         public static float WI_ConsumeCrownDelta() => 0f;
         public static int   WI_IsPressed() => 0;
         public static int   WI_SendHaptic(int type) => 0;
-        public static int   WI_GetDroppedCount() => 0;
-        public static int   WI_GetStaleDroppedCount() => 0;
         public static void  WI_SetDebugLog(int on) { }
 #endif
     }

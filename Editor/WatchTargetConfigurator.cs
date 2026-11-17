@@ -1,4 +1,4 @@
-#if UNITY_EDITOR
+#if UNITY_EDITOR && UNITY_IOS
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -8,8 +8,9 @@ using UnityEngine;
 namespace WatchInput.Editor
 {
     /// <summary>
-    /// Pure configurator responsible for assembling the watchOS companion target in an Xcode project.
-    /// Operates on memory PBXProject instances and WatchBuildSnapshot configurations without PlayerSettings side effects.
+    /// Configurator responsible for assembling the watchOS companion target in an Xcode project.
+    /// Operates on memory PBXProject instances and WatchBuildSnapshot configurations without PlayerSettings side effects;
+    /// performs file IO to write generated Swift sources, build configuration, and app icons into the build directory.
     /// </summary>
     internal static class WatchTargetConfigurator
     {
@@ -75,10 +76,10 @@ namespace WatchInput.Editor
             // Enables compilation for both physical Apple Watch devices and Xcode simulators.
             pbxProject.SetBuildProperty(watchTargetGuid, "SUPPORTED_PLATFORMS", "watchsimulator watchos");
 
-            // [TRAP FIX] '4' identifies Apple Watch family; prevents Xcode from defaulting to iPhone/iPad.
+            // '4' identifies Apple Watch family; prevents Xcode from defaulting to iPhone/iPad.
             pbxProject.SetBuildProperty(watchTargetGuid, "TARGETED_DEVICE_FAMILY", "4");
 
-            // [TRAP FIX] Ensures asset catalogs and resources are built for the Apple Watch screen profile.
+            // Ensures asset catalogs and resources are built for the Apple Watch screen profile.
             pbxProject.SetBuildProperty(watchTargetGuid, "RESOURCES_TARGETED_DEVICE_FAMILY", "4");
 
             // Enforces minimum watchOS version supporting modern single-target SwiftUI App lifecycle.
@@ -122,7 +123,7 @@ namespace WatchInput.Editor
             // Modern SwiftUI requires Swift 5 language mode.
             pbxProject.SetBuildProperty(watchTargetGuid, "SWIFT_VERSION", "5.0");
 
-            // [TRAP FIX] Prevents standalone app archive output; ensures watch app is strictly embedded into host app.
+            // Prevents standalone app archive output; ensures watch app is strictly embedded into host app.
             pbxProject.SetBuildProperty(watchTargetGuid, "SKIP_INSTALL", "YES");
 
             pbxProject.SetBuildProperty(watchTargetGuid, "ALWAYS_SEARCH_USER_PATHS", "NO");
@@ -132,13 +133,13 @@ namespace WatchInput.Editor
             pbxProject.SetBuildProperty(watchTargetGuid, "CURRENT_PROJECT_VERSION", cfg.BuildNumber);
             pbxProject.SetBuildProperty(watchTargetGuid, "MARKETING_VERSION", cfg.BundleVersion);
 
-            // [TRAP FIX] Eliminates physical Info.plist dependency using Xcode 13+ build setting generation.
+            // Eliminates physical Info.plist dependency using Xcode 13+ build setting generation.
             pbxProject.SetBuildProperty(watchTargetGuid, "GENERATE_INFOPLIST_FILE", "YES");
 
-            // [TRAP FIX] Designates modern single-target watchOS app model without legacy extension target.
+            // Designates modern single-target watchOS app model without legacy extension target.
             pbxProject.SetBuildProperty(watchTargetGuid, "INFOPLIST_KEY_WKApplication", "YES");
 
-            // [TRAP FIX] Couples watchOS app to companion iOS app identifier for installation and WatchConnectivity.
+            // Couples watchOS app to companion iOS app identifier for installation and WatchConnectivity.
             pbxProject.SetBuildProperty(watchTargetGuid, "INFOPLIST_KEY_WKCompanionAppBundleIdentifier", cfg.ApplicationIdentifier);
 
             string displayName = string.IsNullOrEmpty(cfg.WatchAppDisplayName) ? cfg.ProductName : cfg.WatchAppDisplayName;
@@ -274,16 +275,10 @@ enum WatchInputBuildConfig {{
 
         public static void EnsureEmbedWatchContentPhase(PBXProject pbxProject, string pathToBuiltProject, string mainTargetGuid, string watchTargetGuid)
         {
-            string pbxPath = PBXProject.GetPBXProjectPath(pathToBuiltProject);
-            // Protect against duplicate phase insertion when building into existing Xcode folders.
-            if (File.Exists(pbxPath) && File.ReadAllText(pbxPath).Contains("/* Embed Watch Content */"))
-            {
-                Debug.Log("[WatchInput] 'Embed Watch Content' phase already present in Xcode project.");
-                return;
-            }
-
             // SubfolderSpec 16 corresponds to the Products Directory destination in Xcode PBXCopyFilesBuildPhase.
-            string embedPhaseGuid = pbxProject.AddCopyFilesBuildPhase(
+            // AddCopyFilesBuildPhaseBeforeTargetPostprocess positions the phase before Unity's postprocess placeholder,
+            // returning the existing phase GUID if one with the same name, dstPath, and spec already exists (idempotent).
+            string embedPhaseGuid = pbxProject.AddCopyFilesBuildPhaseBeforeTargetPostprocess(
                 mainTargetGuid,
                 "Embed Watch Content",
                 "$(CONTENTS_FOLDER_PATH)/Watch",
@@ -293,8 +288,15 @@ enum WatchInputBuildConfig {{
             string watchProductFileGuid = pbxProject.GetTargetProductFileRef(watchTargetGuid);
             if (!string.IsNullOrEmpty(watchProductFileGuid))
             {
-                pbxProject.AddFileToBuildSection(mainTargetGuid, embedPhaseGuid, watchProductFileGuid);
-                Debug.Log("[WatchInput] Added watch application product reference to 'Embed Watch Content' phase.");
+                if (!IsProductFileInPhase(pbxProject, mainTargetGuid, watchProductFileGuid))
+                {
+                    pbxProject.AddFileToBuildSection(mainTargetGuid, embedPhaseGuid, watchProductFileGuid);
+                    Debug.Log("[WatchInput] Added watch application product reference to 'Embed Watch Content' phase.");
+                }
+                else
+                {
+                    Debug.Log("[WatchInput] Watch application product reference already present in 'Embed Watch Content' phase.");
+                }
             }
             else
             {
@@ -302,101 +304,15 @@ enum WatchInputBuildConfig {{
             }
         }
 
-        public static bool FixEmbedPhaseOrder(string pbxPath)
+        private static bool IsProductFileInPhase(PBXProject pbxProject, string targetGuid, string fileGuid)
         {
-            if (!File.Exists(pbxPath))
+            var method = typeof(PBXProject).GetMethod("BuildFilesGetForSourceFile", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (method != null)
             {
-                return false;
+                return method.Invoke(pbxProject, new object[] { targetGuid, fileGuid }) != null;
             }
 
-            string[] lines = File.ReadAllLines(pbxPath);
-            int buildPhasesStart = -1;
-            int buildPhasesEnd = -1;
-            bool foundTargetBlock = false;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (lines[i].Contains("buildPhases = ("))
-                {
-                    buildPhasesStart = i;
-                }
-
-                if (buildPhasesStart != -1 && lines[i].Contains("/* Embed Watch Content */,"))
-                {
-                    foundTargetBlock = true;
-                }
-
-                if (buildPhasesStart != -1 && lines[i].Contains(");"))
-                {
-                    if (foundTargetBlock)
-                    {
-                        buildPhasesEnd = i;
-                        break;
-                    }
-                    buildPhasesStart = -1;
-                }
-            }
-
-            if (!foundTargetBlock || buildPhasesStart == -1 || buildPhasesEnd == -1)
-            {
-                Debug.LogWarning("[WatchInput] FixEmbedPhaseOrder could not find buildPhases section containing '/* Embed Watch Content */,'.");
-                return false;
-            }
-
-            int embedWatchIndex = -1;
-            int phonyTargetIndex = -1;
-            string embedWatchLine = null;
-
-            for (int i = buildPhasesStart; i <= buildPhasesEnd; i++)
-            {
-                if (lines[i].Contains("/* Embed Watch Content */,"))
-                {
-                    embedWatchIndex = i;
-                    embedWatchLine = lines[i];
-                }
-                else if (phonyTargetIndex == -1 && lines[i].Contains("/* Unity Phony Postprocess Target */,"))
-                {
-                    phonyTargetIndex = i;
-                }
-            }
-
-            if (embedWatchIndex == -1)
-            {
-                Debug.LogWarning("[WatchInput] FixEmbedPhaseOrder could not find pattern '/* Embed Watch Content */,' inside buildPhases block.");
-                return false;
-            }
-
-            if (phonyTargetIndex == -1)
-            {
-                Debug.LogWarning("[WatchInput] FixEmbedPhaseOrder could not find pattern '/* Unity Phony Postprocess Target */,' inside buildPhases block.");
-                return false;
-            }
-
-            if (embedWatchIndex < phonyTargetIndex)
-            {
-                Debug.Log("[WatchInput] 'Embed Watch Content' phase is already positioned before 'Unity Phony Postprocess Target'. No reordering necessary.");
-                return true;
-            }
-
-            var reorderedLines = new List<string>(lines);
-            reorderedLines.RemoveAt(embedWatchIndex);
-
-            phonyTargetIndex = reorderedLines.FindIndex(
-                buildPhasesStart,
-                buildPhasesEnd - buildPhasesStart,
-                line => line.Contains("/* Unity Phony Postprocess Target */,")
-            );
-
-            if (phonyTargetIndex != -1)
-            {
-                reorderedLines.Insert(phonyTargetIndex, embedWatchLine);
-                File.WriteAllLines(pbxPath, reorderedLines.ToArray());
-                Debug.Log("[WatchInput] Successfully reordered 'Embed Watch Content' phase ahead of 'Unity Phony Postprocess Target'.");
-                return true;
-            }
-
-            Debug.LogWarning("[WatchInput] FixEmbedPhaseOrder failed to determine insertion index for 'Unity Phony Postprocess Target' after removal.");
-            return false;
+            return pbxProject.WriteToString().Contains($"{WatchInputSettings.WatchTargetName}.app in Embed Watch Content");
         }
     }
 }

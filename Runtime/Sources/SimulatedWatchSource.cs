@@ -113,8 +113,6 @@ namespace WatchInput.Sources
             {
                 _pendingEvents[_pendingCount].type = (byte)type;
                 _pendingEvents[_pendingCount].arg = arg;
-                _pendingEvents[_pendingCount].value = 0f;
-                _pendingEvents[_pendingCount].timestamp = 0;
                 _pendingCount++;
             }
         }
