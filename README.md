@@ -60,6 +60,8 @@ Then:
 
 **Sample:** Package Manager › Watch Input for Unity › Samples › **Basic Demo** › Import —
 a scene that shows every input on screen and plays haptics back.
+The haptic played for each input is chosen in the Inspector on the *Watch Input Demo* object — or call
+`Watch.PlayHaptic(...)` from your own code; the package carries input, the feel is up to your game.
 
 ## API
 
