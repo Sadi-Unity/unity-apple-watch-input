@@ -1,6 +1,6 @@
 {
   "name": "com.sadiakdemir.watch-input",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "displayName": "Watch Input for Unity",
   "description": "Touch, Digital Crown and haptics for Apple Watch in Unity iOS games.",
   "unity": "6000.0",

@@ -100,9 +100,9 @@ static uint32_t currentMs(void) {
 
 // Push event into ring buffer — caller MUST hold sLock.
 // Re-checks sAppActive under lock to discard packets arriving while resigning active.
-// arg == 2 is permitted as synthetic PRESS_END generated during appWillResignActive.
-static void pushEventLocked(uint8_t type, uint8_t arg) {
-    if (!sAppActive.load() && arg != 2) {
+// force == true is used only for the synthetic PRESS_END queued by appWillResignActive.
+static void pushEventLocked(uint8_t type, uint8_t arg, bool force = false) {
+    if (!force && !sAppActive.load()) {
         return;
     }
     if (sCount == kRingBufferCapacity) {
@@ -176,7 +176,7 @@ static void checkPressWatchdogLocked(void) {
     sPressed = false;
     sLastHeldMs = 0;
     if (wasPressed) {
-        pushEventLocked(WIEventType_PressEnd, 2); // arg = 2: "app resigned"
+        pushEventLocked(WIEventType_PressEnd, 2, true); // arg = 2: "app resigned"
     }
     os_unfair_lock_unlock(&sLock);
     if (sDebugLog.load()) {
@@ -309,6 +309,7 @@ static void checkPressWatchdogLocked(void) {
         }
         case WIEventType_PressBegin: {
             os_unfair_lock_lock(&sLock);
+            if (!sAppActive.load()) { os_unfair_lock_unlock(&sLock); break; }
             sPressed = true;
             sLastHeldMs = (uint64_t)((CACurrentMediaTime() - sInitTime) * 1000.0);
             pushEventLocked(WIEventType_PressBegin, 0);
@@ -345,6 +346,7 @@ static void checkPressWatchdogLocked(void) {
             float delta;
             memcpy(&delta, bytes + 10, sizeof(float));
             os_unfair_lock_lock(&sLock);
+            if (!sAppActive.load()) { os_unfair_lock_unlock(&sLock); break; }
             sCrownAccum += delta;
             os_unfair_lock_unlock(&sLock);
             // Crown log throttled: at most ~3 lines/sec

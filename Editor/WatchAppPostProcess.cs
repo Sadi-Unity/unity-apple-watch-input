@@ -9,7 +9,7 @@ namespace WatchInput.Editor
     /// <summary>
     /// Automates the creation and configuration of a modern watchOS companion application target
     /// inside the generated Xcode project during iOS builds.
-    /// Acts as the thin entry point delegating to pure WatchTargetConfigurator.
+    /// Acts as the thin entry point delegating to WatchTargetConfigurator.
     /// </summary>
     public static class WatchAppPostProcess
     {

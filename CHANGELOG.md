@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2] - 2026-11-17
+
+### Fixed
+- A left swipe could pass the app-active check while the app was resigning active (its direction value
+  matched the synthetic-release marker). The synthetic release now uses an explicit flag.
+- Press state and crown deltas are no longer updated by packets that take the lock after the app resigned
+  active.
+- Documentation no longer claims the native backgrounding path is unit-tested.
+
 ## [0.1.1] - 2026-11-17
 
 Fixes from an independent code review.
