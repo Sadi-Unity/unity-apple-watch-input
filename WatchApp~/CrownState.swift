@@ -57,7 +57,7 @@ class CrownState: ObservableObject {
 
     private func flushAccumulatedDelta(at time: TimeInterval) {
         guard accumDelta != 0 else { return }
-        let deltaTicks = Float(accumDelta * InputConstants.ticksPerRange)
+        let deltaTicks = Float(accumDelta * WatchInputBuildConfig.ticksPerRange)
         onCrownDelta?(deltaTicks)
         accumDelta = 0.0
         lastSendTime = time

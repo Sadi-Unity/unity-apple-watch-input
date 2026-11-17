@@ -10,9 +10,7 @@ enum InputConstants {
     static let pressHeldInterval: TimeInterval = 0.25
 
     static let crownRange: Double = 1.0
-    static let ticksPerRange: Double = 24.0
     static let crownSendMaxHz: Double = 30.0
-    static let crownHapticEnabled: Bool = true
 
     static let protocolVersion: UInt8 = 0x02
 }

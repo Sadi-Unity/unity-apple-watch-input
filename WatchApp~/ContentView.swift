@@ -32,10 +32,10 @@ struct ContentView: View {
             $crown.crownValue,
             from: 0,
             through: InputConstants.crownRange,
-            by: 1.0 / InputConstants.ticksPerRange,
+            by: 1.0 / WatchInputBuildConfig.ticksPerRange,
             sensitivity: .medium,
             isContinuous: true,
-            isHapticFeedbackEnabled: InputConstants.crownHapticEnabled
+            isHapticFeedbackEnabled: WatchInputBuildConfig.crownHapticsEnabled
         )
         .onChange(of: crown.crownValue) { _ in
             crown.onCrownChanged()

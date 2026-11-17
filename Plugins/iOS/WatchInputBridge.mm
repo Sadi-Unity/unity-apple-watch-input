@@ -14,7 +14,10 @@ static const int      kRingBufferCapacity     = 64;
 static const uint64_t kPressWatchdogMs        = 600;
 static const uint64_t kHapticMinIntervalMs    = 80;
 static const uint8_t  kHapticTypeMax          = 8;
-static const double   kMaxInputAgeMs          = 500.0;
+// Device measurement shows worst-case latency during session warm-up is 493 ms,
+// whereas genuinely stale background packets arrive with delays of 24+ seconds.
+// Raised from 500 ms to 1000 ms to prevent dropping valid packets during warm-up handshakes.
+static const double   kMaxInputAgeMs          = 1000.0;
 static const double   kClockSkewThresholdMs   = -200.0;
 
 // Event types — must match Swift MessageType and C# WIEventType

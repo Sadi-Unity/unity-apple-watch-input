@@ -29,14 +29,17 @@ namespace WatchInput.Editor
             var pbxProject = new PBXProject();
             pbxProject.ReadFromFile(pbxPath);
 
+            var settings = WatchInputSettings.instance;
+
             string mainTargetGuid = pbxProject.GetUnityMainTargetGuid();
             string unityFrameworkGuid = pbxProject.GetUnityFrameworkTargetGuid();
 
             LinkWatchConnectivityFramework(pbxProject, unityFrameworkGuid);
 
-            string watchTargetGuid = GetOrCreateWatchTarget(pbxProject, mainTargetGuid);
-            ConfigureBuildProperties(pbxProject, watchTargetGuid);
-            CopyAndLinkSwiftSources(pbxProject, watchTargetGuid, pathToBuiltProject);
+            string watchTargetGuid = GetOrCreateWatchTarget(pbxProject, mainTargetGuid, settings);
+            ConfigureBuildProperties(pbxProject, watchTargetGuid, settings);
+            CopyAndLinkSwiftSources(pbxProject, watchTargetGuid, pathToBuiltProject, settings);
+            ConfigureAppIcon(pbxProject, watchTargetGuid, pathToBuiltProject, settings);
             EnsureEmbedWatchContentPhase(pbxProject, pbxPath, mainTargetGuid, watchTargetGuid);
 
             pbxProject.WriteToFile(pbxPath);
@@ -61,15 +64,15 @@ namespace WatchInput.Editor
         /// <summary>
         /// Retrieves an existing watch target or adds a new single-target watch application to maintain idempotency on rebuilds.
         /// </summary>
-        private static string GetOrCreateWatchTarget(PBXProject pbxProject, string mainTargetGuid)
+        private static string GetOrCreateWatchTarget(PBXProject pbxProject, string mainTargetGuid, WatchInputSettings settings)
         {
-            string watchTargetGuid = pbxProject.TargetGuidByName(WatchAppBuildConfig.WatchTargetName);
+            string watchTargetGuid = pbxProject.TargetGuidByName(WatchInputSettings.WatchTargetName);
             bool isNewTarget = string.IsNullOrEmpty(watchTargetGuid);
 
             if (isNewTarget)
             {
                 watchTargetGuid = pbxProject.AddTarget(
-                    WatchAppBuildConfig.WatchTargetName,
+                    WatchInputSettings.WatchTargetName,
                     ".app",
                     "com.apple.product-type.application"
                 );
@@ -79,23 +82,23 @@ namespace WatchInput.Editor
                 pbxProject.AddFrameworksBuildPhase(watchTargetGuid);
 
                 pbxProject.AddTargetDependency(mainTargetGuid, watchTargetGuid);
-                Debug.Log($"[WatchInput] Created new watch application target: {WatchAppBuildConfig.WatchTargetName}");
+                Debug.Log($"[WatchInput] Created new watch application target: {WatchInputSettings.WatchTargetName}");
             }
             else
             {
-                Debug.Log($"[WatchInput] Found existing watch target '{WatchAppBuildConfig.WatchTargetName}'. Updating configuration.");
+                Debug.Log($"[WatchInput] Found existing watch target '{WatchInputSettings.WatchTargetName}'. Updating configuration.");
             }
 
-            string watchBundleId = $"{PlayerSettings.applicationIdentifier}.watchkitapp";
+            string watchBundleId = $"{PlayerSettings.applicationIdentifier}.{settings.BundleIdSuffix}";
             pbxProject.SetBuildProperty(watchTargetGuid, "PRODUCT_BUNDLE_IDENTIFIER", watchBundleId);
 
             return watchTargetGuid;
         }
 
         /// <summary>
-        /// Configures Xcode compilation settings and Info.plist key-values required for modern independent watchOS SwiftUI apps.
+        /// Configures Xcode compilation settings, signing inheritance, and Info.plist key-values required for modern independent watchOS SwiftUI apps.
         /// </summary>
-        private static void ConfigureBuildProperties(PBXProject pbxProject, string watchTargetGuid)
+        private static void ConfigureBuildProperties(PBXProject pbxProject, string watchTargetGuid, WatchInputSettings settings)
         {
             // Directs Xcode to compile this target using watchOS SDK instead of iOS SDK.
             pbxProject.SetBuildProperty(watchTargetGuid, "SDKROOT", "watchos");
@@ -110,7 +113,7 @@ namespace WatchInput.Editor
             pbxProject.SetBuildProperty(watchTargetGuid, "RESOURCES_TARGETED_DEVICE_FAMILY", "4");
 
             // Enforces minimum watchOS version supporting modern single-target SwiftUI App lifecycle.
-            pbxProject.SetBuildProperty(watchTargetGuid, "WATCHOS_DEPLOYMENT_TARGET", WatchAppBuildConfig.WatchOSDeploymentTarget);
+            pbxProject.SetBuildProperty(watchTargetGuid, "WATCHOS_DEPLOYMENT_TARGET", settings.MinimumWatchOS);
 
             // Employs standard watch architectures (e.g. arm64_32 and simulator equivalents).
             pbxProject.SetBuildProperty(watchTargetGuid, "ARCHS", "$(ARCHS_STANDARD)");
@@ -126,12 +129,28 @@ namespace WatchInput.Editor
                 pbxProject.SetBuildProperty(watchTargetGuid, "DEVELOPMENT_TEAM", teamId);
             }
 
-            // Instructs Xcode to manage code signing identities and provisioning profiles automatically.
-            pbxProject.SetBuildProperty(watchTargetGuid, "CODE_SIGN_STYLE", "Automatic");
+            // Inherit signing configuration from PlayerSettings without modifying host iOS application settings.
+            if (PlayerSettings.iOS.appleEnableAutomaticSigning)
+            {
+                pbxProject.SetBuildProperty(watchTargetGuid, "CODE_SIGN_STYLE", "Automatic");
+                pbxProject.SetBuildProperty(watchTargetGuid, "PROVISIONING_PROFILE_SPECIFIER", "");
+            }
+            else
+            {
+                pbxProject.SetBuildProperty(watchTargetGuid, "CODE_SIGN_STYLE", "Manual");
+                if (!string.IsNullOrEmpty(settings.WatchProvisioningProfileId))
+                {
+                    pbxProject.SetBuildProperty(watchTargetGuid, "PROVISIONING_PROFILE_SPECIFIER", settings.WatchProvisioningProfileId);
+                }
+                else
+                {
+                    Debug.LogWarning("[WatchInput] Manual code signing is active in PlayerSettings, but WatchProvisioningProfileId is empty in WatchInputSettings.");
+                }
+            }
 
-            pbxProject.SetBuildProperty(watchTargetGuid, "PRODUCT_NAME", WatchAppBuildConfig.WatchTargetName);
+            pbxProject.SetBuildProperty(watchTargetGuid, "PRODUCT_NAME", WatchInputSettings.WatchTargetName);
 
-            // modern SwiftUI requires Swift 5 language mode.
+            // Modern SwiftUI requires Swift 5 language mode.
             pbxProject.SetBuildProperty(watchTargetGuid, "SWIFT_VERSION", "5.0");
 
             // [TRAP FIX] Prevents standalone app archive output; ensures watch app is strictly embedded into host app.
@@ -153,17 +172,16 @@ namespace WatchInput.Editor
             // [TRAP FIX] Couples watchOS app to companion iOS app identifier for installation and WatchConnectivity.
             pbxProject.SetBuildProperty(watchTargetGuid, "INFOPLIST_KEY_WKCompanionAppBundleIdentifier", PlayerSettings.applicationIdentifier);
 
-            pbxProject.SetBuildProperty(watchTargetGuid, "INFOPLIST_KEY_CFBundleDisplayName", WatchAppBuildConfig.DisplayName);
+            string displayName = string.IsNullOrEmpty(settings.WatchAppDisplayName) ? PlayerSettings.productName : settings.WatchAppDisplayName;
+            pbxProject.SetBuildProperty(watchTargetGuid, "INFOPLIST_KEY_CFBundleDisplayName", displayName);
         }
 
         /// <summary>
-        /// Copies package Swift templates to Xcode build output folder and links them to the watch target using relative paths.
-        /// </summary>
-        /// <summary>
-        /// Scans WatchApp~ for all *.swift files, copies them into the Xcode project, and links to the watch target.
+        /// Scans WatchApp~ for all *.swift files, copies them into the Xcode project, links to the watch target,
+        /// and overwrites WatchInputBuildConfig.swift with the active build settings.
         /// Alphabetical sort ensures deterministic project file output across builds.
         /// </summary>
-        private static void CopyAndLinkSwiftSources(PBXProject pbxProject, string watchTargetGuid, string pathToBuiltProject)
+        private static void CopyAndLinkSwiftSources(PBXProject pbxProject, string watchTargetGuid, string pathToBuiltProject, WatchInputSettings settings)
         {
             string packageRoot = GetPackageRootPath();
             if (string.IsNullOrEmpty(packageRoot))
@@ -179,7 +197,7 @@ namespace WatchInput.Editor
                 return;
             }
 
-            string destDir = Path.Combine(pathToBuiltProject, WatchAppBuildConfig.SubfolderName);
+            string destDir = Path.Combine(pathToBuiltProject, WatchInputSettings.SubfolderName);
             if (!Directory.Exists(destDir))
             {
                 Directory.CreateDirectory(destDir);
@@ -200,7 +218,7 @@ namespace WatchInput.Editor
                 string destFilePath = Path.Combine(destDir, fileName);
                 File.Copy(sourceFilePath, destFilePath, true);
 
-                string projectRelativePath = $"{WatchAppBuildConfig.SubfolderName}/{fileName}";
+                string projectRelativePath = $"{WatchInputSettings.SubfolderName}/{fileName}";
                 string existingFileGuid = pbxProject.FindFileGuidByProjectPath(projectRelativePath);
 
                 if (string.IsNullOrEmpty(existingFileGuid))
@@ -211,7 +229,91 @@ namespace WatchInput.Editor
                 }
             }
 
+            // Overwrite WatchInputBuildConfig.swift with current settings values
+            WriteBuildConfigSwift(destDir, settings);
+
             Debug.Log($"[WatchInput] Processed {swiftFiles.Length} Swift source file(s) from WatchApp~.");
+        }
+
+        /// <summary>
+        /// Generates WatchInputBuildConfig.swift from WatchInputSettings and overwrites the copied template file.
+        /// </summary>
+        private static void WriteBuildConfigSwift(string destDir, WatchInputSettings settings)
+        {
+            string ticksFormatted = settings.CrownTickResolution.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+            string hapticsFormatted = settings.CrownHapticsEnabled ? "true" : "false";
+
+            string content = $@"import Foundation
+
+// Automatically generated by WatchInput Unity PostProcessBuild.
+// Do not edit manually — changes will be overwritten on build.
+enum WatchInputBuildConfig {{
+    static let crownHapticsEnabled: Bool = {hapticsFormatted}
+    static let ticksPerRange: Double = {ticksFormatted}
+}}
+";
+            string targetPath = Path.Combine(destDir, "WatchInputBuildConfig.swift");
+            File.WriteAllText(targetPath, content);
+            Debug.Log("[WatchInput] Overwrote WatchInputBuildConfig.swift with current build settings.");
+        }
+
+        /// <summary>
+        /// Configures watch application icon asset catalog and adds it idempotently to the Xcode watch target resources.
+        /// </summary>
+        private static void ConfigureAppIcon(PBXProject pbxProject, string watchTargetGuid, string pathToBuiltProject, WatchInputSettings settings)
+        {
+            if (settings.AppIcon == null)
+            {
+                Debug.LogWarning("[WatchInput] No watch app icon assigned. App Store submission requires an icon.");
+                return;
+            }
+
+            string sourceIconPath = AssetDatabase.GetAssetPath(settings.AppIcon);
+            if (string.IsNullOrEmpty(sourceIconPath) || !File.Exists(sourceIconPath))
+            {
+                Debug.LogWarning("[WatchInput] Could not resolve file path for assigned app icon.");
+                return;
+            }
+
+            string destFolder = Path.Combine(pathToBuiltProject, WatchInputSettings.SubfolderName);
+            string xcassetsDir = Path.Combine(destFolder, "Assets.xcassets");
+            string iconSetDir = Path.Combine(xcassetsDir, "AppIcon.appiconset");
+            if (!Directory.Exists(iconSetDir))
+            {
+                Directory.CreateDirectory(iconSetDir);
+            }
+
+            string destIconPath = Path.Combine(iconSetDir, "AppIcon-1024.png");
+            File.Copy(sourceIconPath, destIconPath, true);
+
+            string contentsJson = @"{
+  ""images"" : [
+    {
+      ""filename"" : ""AppIcon-1024.png"",
+      ""idiom"" : ""universal"",
+      ""platform"" : ""watchos"",
+      ""size"" : ""1024x1024""
+    }
+  ],
+  ""info"" : {
+    ""author"" : ""xcode"",
+    ""version"" : 1
+  }
+}
+";
+            File.WriteAllText(Path.Combine(iconSetDir, "Contents.json"), contentsJson);
+
+            string projectRelativePath = $"{WatchInputSettings.SubfolderName}/Assets.xcassets";
+            string existingFileGuid = pbxProject.FindFileGuidByProjectPath(projectRelativePath);
+
+            if (string.IsNullOrEmpty(existingFileGuid))
+            {
+                string fileGuid = pbxProject.AddFile(projectRelativePath, projectRelativePath, PBXSourceTree.Source);
+                pbxProject.AddFileToBuild(watchTargetGuid, fileGuid);
+                Debug.Log("[WatchInput] Added Assets.xcassets to watch target resources.");
+            }
+
+            pbxProject.SetBuildProperty(watchTargetGuid, "ASSETCATALOG_COMPILER_APPICON_NAME", "AppIcon");
         }
 
         /// <summary>
