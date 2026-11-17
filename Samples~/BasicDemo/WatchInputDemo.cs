@@ -9,6 +9,17 @@ namespace WatchInput.Samples
     /// </summary>
     public class WatchInputDemo : MonoBehaviour
     {
+        // Which haptic plays for each input. Change them in the Inspector — or call
+        // Watch.PlayHaptic(...) yourself from any script; the SDK doesn't decide the feel, your game does.
+        [Header("Haptic feedback")]
+        [SerializeField] private WatchHaptic tapHaptic = WatchHaptic.Click;
+        [SerializeField] private WatchHaptic swipeUpHaptic = WatchHaptic.DirectionUp;
+        [SerializeField] private WatchHaptic swipeDownHaptic = WatchHaptic.DirectionDown;
+        [SerializeField] private WatchHaptic swipeLeftHaptic = WatchHaptic.Click;
+        [SerializeField] private WatchHaptic swipeRightHaptic = WatchHaptic.Click;
+        [SerializeField] private WatchHaptic pressStartHaptic = WatchHaptic.Start;
+        [SerializeField] private WatchHaptic pressEndHaptic = WatchHaptic.Stop;
+
         private const float EventFadeDuration = 0.6f;
 
         // Preallocated immutable string constants to prevent GC allocation in OnGUI/Update
@@ -73,7 +84,7 @@ namespace WatchInput.Samples
         {
             _lastEventText = TextEventTap;
             _eventAlpha = 1f;
-            Watch.PlayHaptic(WatchHaptic.Click);
+            Watch.PlayHaptic(tapHaptic);
         }
 
         private void OnSwiped(WatchSwipe direction)
@@ -83,19 +94,19 @@ namespace WatchInput.Samples
             {
                 case WatchSwipe.Up:
                     _lastEventText = TextEventSwipeUp;
-                    Watch.PlayHaptic(WatchHaptic.DirectionUp);
+                    Watch.PlayHaptic(swipeUpHaptic);
                     break;
                 case WatchSwipe.Down:
                     _lastEventText = TextEventSwipeDown;
-                    Watch.PlayHaptic(WatchHaptic.DirectionDown);
+                    Watch.PlayHaptic(swipeDownHaptic);
                     break;
                 case WatchSwipe.Left:
                     _lastEventText = TextEventSwipeLeft;
-                    Watch.PlayHaptic(WatchHaptic.Click);
+                    Watch.PlayHaptic(swipeLeftHaptic);
                     break;
                 case WatchSwipe.Right:
                     _lastEventText = TextEventSwipeRight;
-                    Watch.PlayHaptic(WatchHaptic.Click);
+                    Watch.PlayHaptic(swipeRightHaptic);
                     break;
             }
         }
@@ -104,14 +115,14 @@ namespace WatchInput.Samples
         {
             _lastEventText = TextEventPress;
             _eventAlpha = 1f;
-            Watch.PlayHaptic(WatchHaptic.Start);
+            Watch.PlayHaptic(pressStartHaptic);
         }
 
         private void OnPressReleased()
         {
             _lastEventText = TextEventRelease;
             _eventAlpha = 1f;
-            Watch.PlayHaptic(WatchHaptic.Stop);
+            Watch.PlayHaptic(pressEndHaptic);
         }
 
         private void OnCrownRotated(float delta)
