@@ -160,6 +160,10 @@ namespace WatchInput.Editor
         /// <summary>
         /// Copies package Swift templates to Xcode build output folder and links them to the watch target using relative paths.
         /// </summary>
+        /// <summary>
+        /// Scans WatchApp~ for all *.swift files, copies them into the Xcode project, and links to the watch target.
+        /// Alphabetical sort ensures deterministic project file output across builds.
+        /// </summary>
         private static void CopyAndLinkSwiftSources(PBXProject pbxProject, string watchTargetGuid, string pathToBuiltProject)
         {
             string packageRoot = GetPackageRootPath();
@@ -177,17 +181,18 @@ namespace WatchInput.Editor
                 Directory.CreateDirectory(destDir);
             }
 
-            string[] sourceFileNames = { "WatchInputApp.swift", "ContentView.swift" };
+            string[] swiftFiles = Directory.GetFiles(watchSourcesDir, "*.swift");
+            Array.Sort(swiftFiles, StringComparer.Ordinal);
 
-            foreach (string fileName in sourceFileNames)
+            if (swiftFiles.Length == 0)
             {
-                string sourceFilePath = Path.Combine(watchSourcesDir, fileName);
-                if (!File.Exists(sourceFilePath))
-                {
-                    Debug.LogError($"[WatchInput] Swift source file missing: {sourceFilePath}");
-                    continue;
-                }
+                Debug.LogWarning("[WatchInput] No .swift files found in WatchApp~ directory.");
+                return;
+            }
 
+            foreach (string sourceFilePath in swiftFiles)
+            {
+                string fileName = Path.GetFileName(sourceFilePath);
                 string destFilePath = Path.Combine(destDir, fileName);
                 File.Copy(sourceFilePath, destFilePath, true);
 
@@ -201,6 +206,8 @@ namespace WatchInput.Editor
                     Debug.Log($"[WatchInput] Added {fileName} to watch target build sources.");
                 }
             }
+
+            Debug.Log($"[WatchInput] Processed {swiftFiles.Length} Swift source file(s) from WatchApp~.");
         }
 
         /// <summary>

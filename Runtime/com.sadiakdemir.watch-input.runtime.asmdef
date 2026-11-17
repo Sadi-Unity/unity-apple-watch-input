@@ -1,0 +1,14 @@
+{
+    "name": "com.sadiakdemir.watch-input.runtime",
+    "rootNamespace": "WatchInput",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
