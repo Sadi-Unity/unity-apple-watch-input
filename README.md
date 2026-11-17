@@ -44,7 +44,9 @@ missing setup into one readable line in the Unity console instead of an Xcode er
 ## Install
 
 Requirements: Unity 6 (6000.0+) with iOS Build Support, Xcode, an iPhone paired with an Apple Watch.
-Tested with Unity 6000.2.8f1.
+Tested with Unity 6000.2.8f1. Unity 6 is required because the build step embeds the watch app with
+`PBXProject.AddCopyFilesBuildPhaseBeforeTargetPostprocess`, which is documented from Unity 6.0; earlier versions
+are untested.
 
 **Package Manager › + › Add package from git URL**
 
