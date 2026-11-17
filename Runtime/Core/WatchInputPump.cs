@@ -237,5 +237,25 @@ namespace WatchInput.Core
                 Watch.InvokeCrownRotated(delta);
             }
         }
+
+#if UNITY_EDITOR
+        internal static void SetSourceForTesting(IWatchInputSource source)
+        {
+            ActiveSource = source;
+        }
+
+        internal static void TickForTesting()
+        {
+            UpdatePump();
+        }
+
+        internal static void ResetForTesting()
+        {
+            ActiveSource = null;
+            _crownRemainder = 0f;
+            Watch.ResetAllState();
+            Watch.ClearAllSubscribers();
+        }
+#endif
     }
 }

@@ -71,7 +71,7 @@ namespace WatchInput.Editor
             EditorGUILayout.PropertyField(suffixProp, new GUIContent("Bundle ID Suffix", "Appended to host bundle identifier (e.g. .watchkitapp)."));
 
             var bundleIssues = new List<ValidationIssue>();
-            WatchInputValidator.ValidateBundleSuffix(settings, bundleIssues);
+            WatchInputValidator.ValidateBundleSuffix(settings.BundleIdSuffix, bundleIssues);
             DrawIssues(bundleIssues);
 
             string fullBundleId = $"{PlayerSettings.applicationIdentifier}.{settings.BundleIdSuffix}";
@@ -81,7 +81,7 @@ namespace WatchInput.Editor
             EditorGUILayout.PropertyField(minOSProp, new GUIContent("Minimum watchOS", "Minimum deployment target version."));
 
             var osIssues = new List<ValidationIssue>();
-            WatchInputValidator.ValidateMinimumWatchOS(settings, osIssues);
+            WatchInputValidator.ValidateMinimumWatchOS(settings.MinimumWatchOS, osIssues);
             DrawIssues(osIssues);
         }
 
@@ -93,7 +93,8 @@ namespace WatchInput.Editor
             EditorGUILayout.PropertyField(iconProp, new GUIContent("App Icon (1024x1024)", "Square 1024x1024 PNG icon with no alpha channel."));
 
             var iconIssues = new List<ValidationIssue>();
-            WatchInputValidator.ValidateAppIcon(settings, iconIssues);
+            string iconAssetPath = settings.AppIcon != null ? AssetDatabase.GetAssetPath(settings.AppIcon) : null;
+            WatchInputValidator.ValidateAppIcon(iconAssetPath, iconIssues);
             DrawIssues(iconIssues);
         }
 
@@ -133,7 +134,7 @@ namespace WatchInput.Editor
             }
 
             var signingIssues = new List<ValidationIssue>();
-            WatchInputValidator.ValidateSigning(settings, signingIssues);
+            WatchInputValidator.ValidateSigning(autoSign, teamId, settings.WatchProvisioningProfileId, signingIssues);
             DrawIssues(signingIssues);
         }
 

@@ -1,0 +1,25 @@
+{
+    "name": "com.sadiakdemir.watch-input.tests.editor",
+    "rootNamespace": "WatchInput.Tests.Editor",
+    "references": [
+        "com.sadiakdemir.watch-input.runtime",
+        "com.sadiakdemir.watch-input.editor",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

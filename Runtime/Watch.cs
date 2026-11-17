@@ -36,11 +36,41 @@ namespace WatchInput
         private static bool _debugLogging;
 
         // --- Events ---
-        public static event Action Tap;
-        public static event Action<WatchSwipe> Swiped;
-        public static event Action PressBegan;
-        public static event Action PressReleased;
-        public static event Action<float> CrownRotated;
+        private static readonly HandlerList s_TapHandlers = new HandlerList();
+        private static readonly HandlerList<WatchSwipe> s_SwipedHandlers = new HandlerList<WatchSwipe>();
+        private static readonly HandlerList s_PressBeganHandlers = new HandlerList();
+        private static readonly HandlerList s_PressReleasedHandlers = new HandlerList();
+        private static readonly HandlerList<float> s_CrownRotatedHandlers = new HandlerList<float>();
+
+        public static event Action Tap
+        {
+            add => s_TapHandlers.Add(value);
+            remove => s_TapHandlers.Remove(value);
+        }
+
+        public static event Action<WatchSwipe> Swiped
+        {
+            add => s_SwipedHandlers.Add(value);
+            remove => s_SwipedHandlers.Remove(value);
+        }
+
+        public static event Action PressBegan
+        {
+            add => s_PressBeganHandlers.Add(value);
+            remove => s_PressBeganHandlers.Remove(value);
+        }
+
+        public static event Action PressReleased
+        {
+            add => s_PressReleasedHandlers.Add(value);
+            remove => s_PressReleasedHandlers.Remove(value);
+        }
+
+        public static event Action<float> CrownRotated
+        {
+            add => s_CrownRotatedHandlers.Add(value);
+            remove => s_CrownRotatedHandlers.Remove(value);
+        }
 
         // --- Swipe FIFO Queue (Fixed Capacity, Zero GC) ---
         private const int SwipeQueueCapacity = 8;
@@ -96,6 +126,16 @@ namespace WatchInput
             IsPressed = false;
             Status = WatchStatus.None;
             _debugLogging = false;
+            ClearAllSubscribers();
+        }
+
+        internal static void ClearAllSubscribers()
+        {
+            s_TapHandlers.Clear();
+            s_SwipedHandlers.Clear();
+            s_PressBeganHandlers.Clear();
+            s_PressReleasedHandlers.Clear();
+            s_CrownRotatedHandlers.Clear();
         }
 
         internal static void EnqueueSwipe(WatchSwipe direction)
@@ -110,62 +150,27 @@ namespace WatchInput
 
         internal static void InvokeTap()
         {
-            try
-            {
-                Tap?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            s_TapHandlers.Invoke();
         }
 
         internal static void InvokeSwiped(WatchSwipe direction)
         {
-            try
-            {
-                Swiped?.Invoke(direction);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            s_SwipedHandlers.Invoke(direction);
         }
 
         internal static void InvokePressBegan()
         {
-            try
-            {
-                PressBegan?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            s_PressBeganHandlers.Invoke();
         }
 
         internal static void InvokePressReleased()
         {
-            try
-            {
-                PressReleased?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            s_PressReleasedHandlers.Invoke();
         }
 
         internal static void InvokeCrownRotated(float delta)
         {
-            try
-            {
-                CrownRotated?.Invoke(delta);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+            s_CrownRotatedHandlers.Invoke(delta);
         }
     }
 }

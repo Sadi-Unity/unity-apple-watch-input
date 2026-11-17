@@ -37,17 +37,21 @@ namespace WatchInput.Editor
         {
             var issues = new List<ValidationIssue>();
 
-            ValidateSigning(settings, issues);
-            ValidateBundleSuffix(settings, issues);
-            ValidateMinimumWatchOS(settings, issues);
-            ValidateAppIcon(settings, issues);
+            bool autoSign = PlayerSettings.iOS.appleEnableAutomaticSigning;
+            string teamId = PlayerSettings.iOS.appleDeveloperTeamID;
+            ValidateSigning(autoSign, teamId, settings.WatchProvisioningProfileId, issues);
+
+            ValidateBundleSuffix(settings.BundleIdSuffix, issues);
+            ValidateMinimumWatchOS(settings.MinimumWatchOS, issues);
+
+            string assetPath = settings.AppIcon != null ? AssetDatabase.GetAssetPath(settings.AppIcon) : null;
+            ValidateAppIcon(assetPath, issues);
 
             return issues;
         }
 
-        public static void ValidateSigning(WatchInputSettings settings, List<ValidationIssue> issues)
+        public static void ValidateSigning(bool automatic, string teamId, string watchProfile, List<ValidationIssue> issues)
         {
-            string teamId = PlayerSettings.iOS.appleDeveloperTeamID;
             if (string.IsNullOrWhiteSpace(teamId))
             {
                 issues.Add(new ValidationIssue(
@@ -57,10 +61,9 @@ namespace WatchInput.Editor
                 ));
             }
 
-            bool autoSign = PlayerSettings.iOS.appleEnableAutomaticSigning;
-            if (!autoSign)
+            if (!automatic)
             {
-                if (string.IsNullOrWhiteSpace(settings.WatchProvisioningProfileId))
+                if (string.IsNullOrWhiteSpace(watchProfile))
                 {
                     issues.Add(new ValidationIssue(
                         ValidationSeverity.Warning,
@@ -71,9 +74,8 @@ namespace WatchInput.Editor
             }
         }
 
-        public static void ValidateBundleSuffix(WatchInputSettings settings, List<ValidationIssue> issues)
+        public static void ValidateBundleSuffix(string suffix, List<ValidationIssue> issues)
         {
-            string suffix = settings.BundleIdSuffix;
             if (string.IsNullOrEmpty(suffix) || !s_BundleSuffixRegex.IsMatch(suffix))
             {
                 issues.Add(new ValidationIssue(
@@ -84,9 +86,8 @@ namespace WatchInput.Editor
             }
         }
 
-        public static void ValidateMinimumWatchOS(WatchInputSettings settings, List<ValidationIssue> issues)
+        public static void ValidateMinimumWatchOS(string raw, List<ValidationIssue> issues)
         {
-            string raw = settings.MinimumWatchOS;
             if (string.IsNullOrWhiteSpace(raw) || !Version.TryParse(raw, out Version parsedVersion))
             {
                 issues.Add(new ValidationIssue(
@@ -105,10 +106,9 @@ namespace WatchInput.Editor
             }
         }
 
-        public static void ValidateAppIcon(WatchInputSettings settings, List<ValidationIssue> issues)
+        public static void ValidateAppIcon(string assetPath, List<ValidationIssue> issues)
         {
-            Texture2D icon = settings.AppIcon;
-            if (icon == null)
+            if (string.IsNullOrEmpty(assetPath))
             {
                 issues.Add(new ValidationIssue(
                     ValidationSeverity.Warning,
@@ -118,35 +118,24 @@ namespace WatchInput.Editor
                 return;
             }
 
-            if (icon.width != 1024 || icon.height != 1024)
-            {
-                issues.Add(new ValidationIssue(
-                    ValidationSeverity.Error,
-                    $"Watch app icon must be 1024x1024 (current: {icon.width}x{icon.height}).",
-                    "Provide a 1024x1024 icon in Project Settings > Watch Input."
-                ));
-            }
-
-            string assetPath = AssetDatabase.GetAssetPath(icon);
-            if (string.IsNullOrEmpty(assetPath) || !assetPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            if (!assetPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
             {
                 issues.Add(new ValidationIssue(
                     ValidationSeverity.Error,
                     "Watch app icon must be a PNG file.",
                     "Export icon as a PNG image in Project Settings > Watch Input."
                 ));
+                return;
             }
-            else
+
+            var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+            if (importer != null && importer.DoesSourceTextureHaveAlpha())
             {
-                var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
-                if (importer != null && importer.DoesSourceTextureHaveAlpha())
-                {
-                    issues.Add(new ValidationIssue(
-                        ValidationSeverity.Error,
-                        "Watch app icon contains an alpha channel (Apple App Store forbids transparency in app icons).",
-                        "Export icon as a 24-bit RGB PNG without transparency (Apple App Store requirement)."
-                    ));
-                }
+                issues.Add(new ValidationIssue(
+                    ValidationSeverity.Error,
+                    "Watch app icon contains an alpha channel (Apple App Store forbids transparency in app icons).",
+                    "Export icon as a 24-bit RGB PNG without transparency (Apple App Store requirement)."
+                ));
             }
         }
     }
