@@ -5,7 +5,7 @@ and the Digital Crown on the watch, haptic feedback back to the wrist.
 Install the package and your iOS build **automatically gains a watchOS app**. No Xcode editing,
 no scene setup.
 
-<!-- demo GIF goes here: docs/demo.gif -->
+<p align="center"><img src="docs/demo.gif" width="340" alt="Tapping, swiping, holding and turning the Digital Crown on an Apple Watch; the iPhone shows each input"></p>
 
 ```csharp
 using WatchInput;
