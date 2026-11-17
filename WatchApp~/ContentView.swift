@@ -6,10 +6,21 @@ struct ContentView: View {
     @StateObject private var gesture = GestureState()
     @StateObject private var crown = CrownState()
     @FocusState private var isCrownFocused: Bool
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+
+    private var statusText: String {
+        if isLuminanceReduced {
+            return WatchStatusText.wristDown
+        } else if session.isActivated && session.isReachable && session.phoneActive {
+            return WatchStatusText.connected
+        } else {
+            return WatchStatusText.openPhoneGame
+        }
+    }
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(session.statusText)
+            Text(statusText)
                 .font(.caption2)
                 .foregroundColor(.secondary)
 

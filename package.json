@@ -5,5 +5,12 @@
   "description": "Touch, Digital Crown and haptics for Apple Watch in Unity iOS games.",
   "unity": "6000.0",
   "author": { "name": "Sadi Akdemir" },
-  "license": "MIT"
+  "license": "MIT",
+  "samples": [
+    {
+      "displayName": "Basic Demo",
+      "description": "Shows tap, swipe, press and Digital Crown input on screen with haptic feedback.",
+      "path": "Samples~/BasicDemo"
+    }
+  ]
 }

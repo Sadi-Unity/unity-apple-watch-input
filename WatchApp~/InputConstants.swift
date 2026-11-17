@@ -59,3 +59,10 @@ enum HapticType: UInt8 {
         }
     }
 }
+
+// User-facing watch status messages
+enum WatchStatusText {
+    static let wristDown = "Raise your wrist to reconnect"
+    static let connected = "Connected"
+    static let openPhoneGame = "Open the game on your iPhone"
+}

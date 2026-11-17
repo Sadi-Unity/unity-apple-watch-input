@@ -156,8 +156,20 @@ static void checkPressWatchdogLocked(void) {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (void)sendApplicationContextPhoneActive:(BOOL)active {
+    if (![WCSession isSupported]) return;
+    WCSession *session = [WCSession defaultSession];
+    if (session.activationState != WCSessionActivationStateActivated) return;
+    NSError *error = nil;
+    [session updateApplicationContext:@{@"phoneActive": @(active)} error:&error];
+    if (error && sDebugLog.load()) {
+        NSLog(@"[WatchInput] updateApplicationContext error: %@", error);
+    }
+}
+
 - (void)appWillResignActive {
     sAppActive.store(false);
+    [self sendApplicationContextPhoneActive:NO];
     os_unfair_lock_lock(&sLock);
     sHead = 0;
     sCount = 0;
@@ -172,6 +184,7 @@ static void checkPressWatchdogLocked(void) {
 
 - (void)appDidBecomeActive {
     sAppActive.store(true);
+    [self sendApplicationContextPhoneActive:YES];
     if (sDebugLog.load()) {
         NSLog(@"[WatchInput] App did become active");
     }
@@ -181,6 +194,9 @@ static void checkPressWatchdogLocked(void) {
     activationDidCompleteWithState:(WCSessionActivationState)activationState
                              error:(NSError *)error {
     [self updateStatus:session];
+    if (activationState == WCSessionActivationStateActivated) {
+        [self sendApplicationContextPhoneActive:sAppActive.load()];
+    }
     if (sDebugLog.load()) {
         NSLog(@"[WatchInput] Session activation: state=%ld error=%@",
               (long)activationState, error);
