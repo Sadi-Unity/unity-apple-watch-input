@@ -7,6 +7,8 @@
   matched the synthetic-release marker). The synthetic release now uses an explicit flag.
 - Press state and crown deltas are no longer updated by packets that take the lock after the app resigned
   active.
+- A press could be released twice: once by the watchdog or on resign, then again by the watch's real
+  release. The bridge now ignores a release when no press is active.
 - Documentation no longer claims the native backgrounding path is unit-tested.
 
 ## [0.1.1] - 2026-11-17

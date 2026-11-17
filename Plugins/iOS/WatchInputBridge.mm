@@ -326,8 +326,11 @@ static void checkPressWatchdogLocked(void) {
         }
         case WIEventType_PressEnd: {
             os_unfair_lock_lock(&sLock);
-            sPressed = false;
-            pushEventLocked(WIEventType_PressEnd, 0);
+            // Only release a press that is still active: the watchdog or resign may already have ended it.
+            if (sPressed) {
+                sPressed = false;
+                pushEventLocked(WIEventType_PressEnd, 0);
+            }
             os_unfair_lock_unlock(&sLock);
             if (debug) NSLog(@"[WatchInput] Event: PRESS_END");
             break;
