@@ -44,6 +44,7 @@ missing setup into one readable line in the Unity console instead of an Xcode er
 ## Install
 
 Requirements: Unity 6 (6000.0+) with iOS Build Support, Xcode, an iPhone paired with an Apple Watch.
+Tested with Unity 6000.2.8f1.
 
 **Package Manager › + › Add package from git URL**
 
@@ -58,8 +59,10 @@ Then:
 3. Build for iOS. Run from Xcode. If the watch app doesn't appear on the watch, install it from the
    iPhone **Watch** app (see Troubleshooting).
 
-**Sample:** Package Manager › Watch Input for Unity › Samples › **Basic Demo** › Import —
-a scene that shows every input on screen and plays haptics back.
+**Try the sample first:** in Package Manager select *Watch Input for Unity*, open the **Samples** tab
+(next to *Description*), click **Import** next to *Basic Demo*, then open
+`Assets/Samples/Watch Input for Unity/0.1.0/Basic Demo/BasicDemo.unity` — a scene that shows every input on
+screen and plays haptics back. In the Editor, click / hold / use the arrow keys / scroll to simulate the watch.
 The haptic played for each input is chosen in the Inspector on the *Watch Input Demo* object — or call
 `Watch.PlayHaptic(...)` from your own code; the package carries input, the feel is up to your game.
 
