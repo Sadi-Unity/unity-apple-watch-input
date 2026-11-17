@@ -73,6 +73,7 @@ static CFTimeInterval sInitTime = 0;
 static std::atomic<uint32_t> sSessionStatus{0};
 static std::atomic<bool>     sDebugLog{false};
 static std::atomic<uint64_t> sLastHapticMs{0};
+static std::atomic<int>      sStaleDroppedCount{0};
 
 // Crown log throttle (delegate queue only, no lock needed)
 static uint64_t sLastCrownLogMs = 0;
@@ -175,6 +176,15 @@ static void checkPressWatchdogLocked(void) {
 
     const uint8_t *bytes = (const uint8_t *)data.bytes;
     if (bytes[0] != kProtocolVersion) return;
+
+    WCSession *session = [WCSession defaultSession];
+    if (!session.isReachable) {
+        sStaleDroppedCount++;
+        if (sDebugLog.load()) {
+            NSLog(@"[WatchInput] Dropped stale message (session not reachable)");
+        }
+        return;
+    }
 
     bool debug = sDebugLog.load();
     uint8_t type = bytes[1];
@@ -280,6 +290,7 @@ void WI_Init(void) {
 
     sSessionStatus.store(WIStatus_Supported);
     sLastHapticMs.store(0);
+    sStaleDroppedCount.store(0);
 
     if (!sBridge) {
         sBridge = [[WatchInputBridge alloc] init];
@@ -365,6 +376,10 @@ int WI_GetDroppedCount(void) {
     int count = sDroppedCount;
     os_unfair_lock_unlock(&sLock);
     return count;
+}
+
+int WI_GetStaleDroppedCount(void) {
+    return sStaleDroppedCount.load();
 }
 
 void WI_SetDebugLog(int on) {

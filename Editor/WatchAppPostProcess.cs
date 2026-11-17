@@ -1,5 +1,4 @@
 #if UNITY_IOS
-using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -167,6 +166,11 @@ namespace WatchInput.Editor
         private static void CopyAndLinkSwiftSources(PBXProject pbxProject, string watchTargetGuid, string pathToBuiltProject)
         {
             string packageRoot = GetPackageRootPath();
+            if (string.IsNullOrEmpty(packageRoot))
+            {
+                return;
+            }
+
             string watchSourcesDir = Path.Combine(packageRoot, "WatchApp~");
 
             if (!Directory.Exists(watchSourcesDir))
@@ -182,7 +186,7 @@ namespace WatchInput.Editor
             }
 
             string[] swiftFiles = Directory.GetFiles(watchSourcesDir, "*.swift");
-            Array.Sort(swiftFiles, StringComparer.Ordinal);
+            System.Array.Sort(swiftFiles, System.StringComparer.Ordinal);
 
             if (swiftFiles.Length == 0)
             {
@@ -348,10 +352,8 @@ namespace WatchInput.Editor
                 return packageInfo.resolvedPath;
             }
 
-            // Fallback for direct local development folder structures
-            string fallbackPath = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            Debug.LogWarning($"[WatchInput] PackageInfo not found for assembly; using project root fallback: {fallbackPath}");
-            return fallbackPath;
+            Debug.LogError("[WatchInput] PackageInfo could not be found for assembly.");
+            return null;
         }
     }
 }

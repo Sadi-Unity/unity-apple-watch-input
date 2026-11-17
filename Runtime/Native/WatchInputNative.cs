@@ -75,6 +75,7 @@ namespace WatchInput.Native
         [DllImport("__Internal")] public static extern int   WI_IsPressed();
         [DllImport("__Internal")] public static extern int   WI_SendHaptic(int type);
         [DllImport("__Internal")] public static extern int   WI_GetDroppedCount();
+        [DllImport("__Internal")] public static extern int   WI_GetStaleDroppedCount();
         [DllImport("__Internal")] public static extern void  WI_SetDebugLog(int on);
 #else
         public static void  WI_Init() { }
@@ -84,6 +85,7 @@ namespace WatchInput.Native
         public static int   WI_IsPressed() => 0;
         public static int   WI_SendHaptic(int type) => 0;
         public static int   WI_GetDroppedCount() => 0;
+        public static int   WI_GetStaleDroppedCount() => 0;
         public static void  WI_SetDebugLog(int on) { }
 #endif
     }
